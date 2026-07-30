@@ -49,6 +49,18 @@ class LayerNorm2d(nn.Module):
 class LayerNorm2dRsqrt(nn.Module):
     """N-A': mathematically identical to :class:`LayerNorm2d`, with no `Div`.
 
+    **REJECTED — retained as a documented negative result. Do not adopt.**
+
+    Measured on Snapdragon 8 Gen 3 (Hexagon v75, INT8): **2.87 ms vs 2.51 ms
+    for N-A — 14% slower**, despite removing every elementwise `Div`.
+
+    Why: QNN *fuses* the whole LayerNorm subgraph and bills it to the terminal
+    `Div` node (its neighbours profile at exactly zero cycles). Rewriting the
+    division breaks that fusion match, so `Sub`/`Pow`/`ReduceMean`/`Mul` — free
+    when fused — start executing separately and cost more than the division
+    saved. The canonical form is the fast path *because* it is the
+    fusion-matched form. See ``reports/findings.md`` F3 and F4.
+
     Because the computed function is unchanged (to floating-point tolerance),
     swapping N-A for N-A' is a **pure graph rewrite**: no retraining, no quality
     ablation, and an N-A checkpoint loads directly.
