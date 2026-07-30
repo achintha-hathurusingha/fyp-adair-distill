@@ -208,6 +208,36 @@ known-answer test; and run the original artifact in its *own* pinned environment
 rather than a patched modern one, so "reproduces" means the released code, not
 our edit of it.
 
+### Rebuilding the pinned environment is itself non-trivial (2026-07-31)
+
+Reconstructing AdaIR's `env.yaml` to run its code unmodified surfaced three
+further obstacles, none of them in AdaIR's own source:
+
+1. **`lightning==2.0.1` will not import.** It eagerly loads `lightning.app`,
+   which imports `lightning_cloud`, which at *import time* reads the Windows
+   certificate store and dies with
+   `ssl.SSLError: [ASN1: NOT_ENOUGH_DATA]`. The pinned `lightning-cloud==0.5.32`
+   reproduces it. Nothing in the restoration code path needs any of this;
+   `test.py` uses Lightning only for `LightningModule.load_from_checkpoint`.
+   Resolved by moving to `lightning==2.2.5`, which no longer forces the
+   `lightning.app` import. **This is a deviation from the pin** and is recorded
+   as such — the *research code* is unmodified, one *dependency* is not.
+2. **Pinned transitive versions conflict with each other.** Installing
+   `lightning-utilities==0.8.0` (as pinned) pulls a `pytorch-lightning` that
+   requires `>=0.10.0`. The published environment is not self-consistent under a
+   current resolver.
+3. **`test.py` hardcodes `.cuda()`** (lines 61, 85, 136) with no CPU fallback, so
+   reproduction additionally requires a CUDA build of the pinned torch 1.13.1,
+   not merely the pinned version.
+
+The *metric* half of the environment — NumPy 1.23.5, scikit-image 0.19.3,
+scikit-video 1.1.11, torch 1.13.1 — rebuilt cleanly and was sufficient to
+generate the cross-implementation oracle in `tests/golden/adair_metrics.json`.
+
+**Reading:** the reproducibility cost of a two-year-old paper sits mostly in its
+dependency graph, not its research code. A frozen container image at publication
+time would have prevented all three.
+
 ---
 
 ## AI Hub job IDs (verifiable provenance)
