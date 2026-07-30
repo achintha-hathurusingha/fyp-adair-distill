@@ -1,0 +1,113 @@
+{
+  "generator": "AdaIR utils/val_utils.py compute_psnr_ssim",
+  "skimage_version": "0.19.3",
+  "torch_version": "1.13.1+cpu",
+  "python_version": "3.8.20",
+  "construction": "clean = RandomState(seed).rand(*shape); degraded = clip(clean + RandomState(seed).randn(*shape) * noise, 0, 1) with the SAME RandomState instance, drawn in that order",
+  "cases": [
+    {
+      "id": 0,
+      "shape": [
+        32,
+        32,
+        3
+      ],
+      "noise": 0.0,
+      "seed": 1000,
+      "n": 1,
+      "psnr": Infinity,
+      "ssim": 1.0
+    },
+    {
+      "id": 1,
+      "shape": [
+        32,
+        32,
+        3
+      ],
+      "noise": 0.01,
+      "seed": 1001,
+      "n": 1,
+      "psnr": 40.2145163865218,
+      "ssim": 0.9994218654238822
+    },
+    {
+      "id": 2,
+      "shape": [
+        64,
+        48,
+        3
+      ],
+      "noise": 0.05,
+      "seed": 1002,
+      "n": 1,
+      "psnr": 26.24129075431325,
+      "ssim": 0.9852331561213082
+    },
+    {
+      "id": 3,
+      "shape": [
+        64,
+        48,
+        3
+      ],
+      "noise": 0.2,
+      "seed": 1003,
+      "n": 1,
+      "psnr": 15.070193277142462,
+      "ssim": 0.8296977970751604
+    },
+    {
+      "id": 4,
+      "shape": [
+        17,
+        23,
+        3
+      ],
+      "noise": 0.0,
+      "seed": 1004,
+      "n": 1,
+      "psnr": Infinity,
+      "ssim": 1.0
+    },
+    {
+      "id": 5,
+      "shape": [
+        17,
+        23,
+        3
+      ],
+      "noise": 0.01,
+      "seed": 1005,
+      "n": 1,
+      "psnr": 40.23543045459172,
+      "ssim": 0.999383494924959
+    },
+    {
+      "id": 6,
+      "shape": [
+        320,
+        480,
+        3
+      ],
+      "noise": 0.05,
+      "seed": 1006,
+      "n": 1,
+      "psnr": 26.2501260910198,
+      "ssim": 0.9855904382527525
+    },
+    {
+      "id": 7,
+      "shape": [
+        320,
+        480,
+        3
+      ],
+      "noise": 0.2,
+      "seed": 1007,
+      "n": 1,
+      "psnr": 15.000138546883663,
+      "ssim": 0.8232912077916693
+    }
+  ]
+}
