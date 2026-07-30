@@ -38,13 +38,27 @@ teacher:
   kwargs: {}
 
 # Student family targets, as MAC-reduction factors vs the measured teacher.
+# Advisory only: used to order arms, never to reject candidates. The measured
+# params/MAC mismatch between AdaIR (attention, compute-dense) and NAFNet
+# (convolution, parameter-dense) makes low-reduction targets unreachable.
 family_targets:
   S: 30.0
   M: 10.0
   L: 4.0
 
-# An arm only counts as compression if BOTH ratios clear this factor.
-min_compression_factor: 4.0
+# Parameter CEILING, not a selection target. The former ">=4x reduction on both
+# params and MACs" rule is retired: it rejected every width-32 config and forced
+# a latency-degenerate family. Params now only bound model size.
+params_ceiling: 10_000_000
+
+# Family invariants, enforced (not hoped for). A family that violates these is
+# an error, because it cannot support a capacity-gap study or a Pareto curve.
+family_invariants:
+  min_mac_span: 2.5      # macs(L) / macs(S)
+
+# Selection priority when several families satisfy the invariants:
+# measured on-device latency -> peak activation memory -> GMACs -> params.
+selection_priority: [latency, peak_memory, macs, params]
 
 # Qualcomm AI Hub on-device profiling. Requires an API token:
 #   pip install qai-hub && qai-hub configure --api_token <TOKEN>

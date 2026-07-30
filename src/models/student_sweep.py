@@ -24,7 +24,7 @@ _CTX_SWEEP = "sweep config"
 _CTX_TEACHER = "sweep.teacher"
 _CTX_AIHUB = "sweep.aihub"
 _CTX_BLOCK = "sweep.block_configs entry"
-_FAILS_RULE = "fails-compression-rule"
+_OVER_CEILING = "exceeds-params-ceiling"
 
 
 @dataclass
@@ -45,8 +45,8 @@ class SweepRow:
 
     @property
     def eligible(self) -> bool:
-        """True when the config is a genuine compression on BOTH axes."""
-        return _FAILS_RULE not in self.notes
+        """True when the config is within the parameter ceiling."""
+        return _OVER_CEILING not in self.notes
 
 
 def measure_teacher(cfg: dict, input_shape: tuple[int, int, int, int]) -> Complexity:
@@ -93,8 +93,11 @@ def build_grid(cfg: dict) -> list[dict]:
 
 def measure_grid(grid: list[dict], teacher: Complexity,
                  input_shape: tuple[int, int, int, int],
-                 min_factor: float) -> list[SweepRow]:
-    """Measure every candidate and annotate reduction ratios vs the teacher."""
+                 params_ceiling: float = 10_000_000) -> list[SweepRow]:
+    """Measure every candidate and annotate reduction ratios vs the teacher.
+
+    ``params_ceiling`` bounds model size only; it is NOT a compression target.
+    """
     rows: list[SweepRow] = []
     for spec in grid:
         model = NAFNet(
@@ -107,8 +110,8 @@ def measure_grid(grid: list[dict], teacher: Complexity,
         row = SweepRow(complexity=c, **spec)
         row.param_reduction = teacher.params / c.params
         row.mac_reduction = teacher.macs / c.macs
-        if row.param_reduction < min_factor or row.mac_reduction < min_factor:
-            row.notes.append(_FAILS_RULE)
+        if c.params > params_ceiling:
+            row.notes.append(_OVER_CEILING)
         rows.append(row)
         print(f"[sweep] {row.name:12s} {c.mparams:6.2f}M params  "
               f"{c.gmacs:7.2f} GMACs  (params /{row.param_reduction:.1f}, "
@@ -116,77 +119,140 @@ def measure_grid(grid: list[dict], teacher: Complexity,
     return rows
 
 
-def assign_family(rows: list[SweepRow],
-                  targets: dict[str, float]) -> tuple[dict[str, SweepRow], list[str]]:
-    """Assign distinct eligible candidates to each arm, reporting target gaps.
+#: Arm order, smallest to largest. Fixed by definition, not by search outcome.
+ARMS = ("S", "M", "L")
 
-    Assignment is greedy from the largest MAC-reduction target downwards and
-    never reuses a config, so a degenerate family (S == M == L) is impossible.
-    Any arm whose target is unreachable within the eligible set is reported in
-    the returned warning list rather than silently snapped to a poor match.
+
+class FamilyInvariantError(ValueError):
+    """Raised when a proposed S/M/L family violates a required invariant."""
+
+
+def validate_family(family: dict[str, SweepRow], *, min_mac_span: float = 2.5) -> None:
+    """Enforce family semantics as hard invariants (rule 9: no silent fallbacks).
+
+    A family is only meaningful if S is genuinely the smallest arm and L the
+    largest, and the span is wide enough to expose a capacity gap. Previously
+    this ordering was an emergent property of the search; now it is checked, so
+    a selector bug fails loudly instead of producing a nonsense family.
+
+    Raises:
+        FamilyInvariantError: if any invariant is violated.
     """
+    missing = [a for a in ARMS if a not in family]
+    if missing:
+        raise FamilyInvariantError(f"family missing arm(s): {missing}")
+
+    s, m, l = (family[a] for a in ARMS)
+    if not (s.complexity.params < m.complexity.params < l.complexity.params):
+        raise FamilyInvariantError(
+            "params must increase S < M < L, got "
+            f"S={s.complexity.mparams:.2f}M ({s.name}), "
+            f"M={m.complexity.mparams:.2f}M ({m.name}), "
+            f"L={l.complexity.mparams:.2f}M ({l.name})")
+    if not (s.complexity.macs < m.complexity.macs < l.complexity.macs):
+        raise FamilyInvariantError(
+            "MACs must increase S < M < L, got "
+            f"S={s.complexity.gmacs:.2f} ({s.name}), "
+            f"M={m.complexity.gmacs:.2f} ({m.name}), "
+            f"L={l.complexity.gmacs:.2f} ({l.name})")
+
+    span = l.complexity.macs / s.complexity.macs
+    if span < min_mac_span:
+        raise FamilyInvariantError(
+            f"family span too narrow for capacity-gap study: "
+            f"macs(L)/macs(S) = {span:.2f}x < {min_mac_span}x "
+            f"({s.name} -> {l.name})")
+
+
+def _family_candidates(eligible: list[SweepRow], min_mac_span: float):
+    """Yield ordered (S, M, L) triples that satisfy every family invariant."""
     import itertools
+
+    for combo in itertools.combinations(eligible, len(ARMS)):
+        cand = dict(zip(ARMS, combo))
+        try:
+            validate_family(cand, min_mac_span=min_mac_span)
+        except FamilyInvariantError:
+            continue
+        # When measured latency exists it must also increase across arms —
+        # MACs correlate only ~0.66 with latency, so MAC ordering alone can
+        # yield a family whose "small" arm is slower than its "medium" arm.
+        lats = [r.device.inference_latency_ms for r in combo
+                if r.device and r.device.inference_latency_ms]
+        if len(lats) == len(combo) and not all(a < b for a, b in zip(lats, lats[1:])):
+            continue
+        yield combo
+
+
+def assign_family(rows: list[SweepRow], targets: dict[str, float] | None = None, *,
+                  params_ceiling: float = 10_000_000,
+                  min_mac_span: float = 2.5,
+                  ) -> tuple[dict[str, SweepRow], list[str]]:
+    """Select an S/M/L family under a params ceiling, enforcing invariants.
+
+    The former ">=4x reduction on both params and MACs" rule is retired: it
+    rejected every width-32 candidate and forced a latency-degenerate family.
+    Parameters are now only a ceiling; arms are chosen to maximise MAC span
+    (the capacity gap) with M near the geometric midpoint.
+
+    Args:
+        rows: measured candidates.
+        targets: advisory MAC-reduction targets, reported but never used to
+            reject a candidate.
+        params_ceiling: hard upper bound on parameter count.
+        min_mac_span: required ``macs(L) / macs(S)``.
+
+    Returns:
+        ``(family, warnings)``. The family always satisfies
+        :func:`validate_family` or is empty with an explanatory warning.
+    """
     import math
 
-    # Descending MAC reduction == ascending model cost.
-    eligible = sorted((r for r in rows if r.eligible),
-                      key=lambda r: -r.mac_reduction)
-    family: dict[str, SweepRow] = {}
     warnings: list[str] = []
-
-    arms = sorted(targets.items(), key=lambda kv: -kv[1])  # S(30x), M(10x), L(4x)
-    if len(eligible) < len(arms):
+    eligible = sorted((r for r in rows if r.complexity.params <= params_ceiling),
+                      key=lambda r: r.complexity.macs)
+    dropped = len(rows) - len(eligible)
+    if dropped:
         warnings.append(
-            f"only {len(eligible)} eligible candidate(s) for {len(arms)} arms; "
-            "widen the grid or relax the compression rule"
-        )
-        return {arm: eligible[i] for i, (arm, _) in enumerate(arms)
-                if i < len(eligible)}, warnings
+            f"{dropped} config(s) exceed the {params_ceiling/1e6:.0f}M parameter "
+            "ceiling and were excluded")
 
-    # Choose an ordered triple so that MAC reduction is monotonically decreasing
-    # across S -> M -> L (i.e. S is always the smallest model, L the largest).
-    # Score by summed absolute log-ratio error so the fit is scale-fair.
-    def score(combo: tuple[SweepRow, ...]) -> float:
-        return sum(abs(math.log(r.mac_reduction / t))
-                   for r, (_, t) in zip(combo, arms))
+    candidates = list(_family_candidates(eligible, min_mac_span))
+    if not candidates:
+        warnings.append(
+            f"no S/M/L family satisfies the invariants (params <= "
+            f"{params_ceiling/1e6:.0f}M, monotonic params/MACs/latency, span >= "
+            f"{min_mac_span}x) among {len(eligible)} eligible config(s); widen "
+            "the grid")
+        return {}, warnings
 
-    # When real on-device latency exists, additionally require the family to be
-    # latency-separated. Assigning purely on MACs produced a degenerate family
-    # (all three arms within 0.3 ms, with S slower than M) because MACs correlate
-    # only ~0.5 with measured latency. A family whose arms are not meaningfully
-    # different in latency cannot support a latency-quality Pareto curve.
-    have_latency = all(r.device and r.device.inference_latency_ms for r in eligible)
-    if have_latency:
-        def spread(combo: tuple[SweepRow, ...]) -> float:
-            lats = [r.device.inference_latency_ms for r in combo]
-            monotonic = all(a < b for a, b in zip(lats, lats[1:]))
-            if not monotonic:
-                return float("inf")
-            return -(max(lats) / min(lats))  # maximise latency spread
+    def rank(combo):
+        s, m, l = combo
+        span = l.complexity.macs / s.complexity.macs
+        # Prefer the widest capacity gap, then an M nearest the geometric mean
+        # of S and L (so the middle arm is genuinely intermediate, not hugging
+        # an end).
+        mid = abs(math.log(m.complexity.macs
+                           / math.sqrt(s.complexity.macs * l.complexity.macs)))
+        return (-span, mid)
 
-        ordered = [c for c in itertools.combinations(eligible, len(arms))
-                   if spread(c) != float("inf")]
-        best_combo = min(ordered, key=lambda c: (spread(c), score(c))) if ordered \
-            else min(itertools.combinations(eligible, len(arms)), key=score)
-        if ordered:
-            lats = [r.device.inference_latency_ms for r in best_combo]
-            if max(lats) / min(lats) < 1.5:
-                warnings.append(
-                    f"family is latency-degenerate: arms span only "
-                    f"{min(lats):.2f}-{max(lats):.2f} ms ({max(lats)/min(lats):.2f}x). "
-                    "A Pareto curve needs wider separation — widen the grid or "
-                    "relax the compression rule."
-                )
-    else:
-        best_combo = min(itertools.combinations(eligible, len(arms)), key=score)
-    for (arm, target), row in zip(arms, best_combo):
-        family[arm] = row
-        if row.mac_reduction > 2 * target or row.mac_reduction < 0.5 * target:
+    family = dict(zip(ARMS, min(candidates, key=rank)))
+    validate_family(family, min_mac_span=min_mac_span)  # belt and braces
+
+    lats = [family[a].device.inference_latency_ms for a in ARMS
+            if family[a].device and family[a].device.inference_latency_ms]
+    if len(lats) == len(ARMS) and max(lats) / min(lats) < 1.5:
+        warnings.append(
+            f"family latency span is only {max(lats)/min(lats):.2f}x "
+            f"({min(lats):.2f}-{max(lats):.2f} ms) — thin for a Pareto curve")
+
+    for arm, target in (targets or {}).items():
+        row = family.get(arm)
+        if row and (row.mac_reduction > 2 * target or row.mac_reduction < 0.5 * target):
             warnings.append(
-                f"arm {arm}: target {target:g}x MAC reduction is UNREACHABLE "
-                f"under the compression rule; closest ordered fit is "
-                f"`{row.name}` at {row.mac_reduction:.1f}x"
-            )
+                f"arm {arm}: advisory target {target:g}x MAC reduction not met; "
+                f"selected `{row.name}` at {row.mac_reduction:.1f}x "
+                "(targets are advisory only, not a filter)")
     return family, warnings
 
 
@@ -253,6 +319,70 @@ def _pearson(a: list[float], b: list[float]) -> float:
     return cov / (va * vb) if va and vb else 0.0
 
 
+def _spearman(a: list[float], b: list[float]) -> float:
+    """Spearman rank correlation (Pearson on ranks, average ties)."""
+    def ranks(xs: list[float]) -> list[float]:
+        order = sorted(range(len(xs)), key=lambda i: xs[i])
+        out = [0.0] * len(xs)
+        i = 0
+        while i < len(order):
+            j = i
+            while j + 1 < len(order) and xs[order[j + 1]] == xs[order[i]]:
+                j += 1
+            avg = (i + j) / 2 + 1
+            for k in range(i, j + 1):
+                out[order[k]] = avg
+            i = j + 1
+        return out
+
+    return _pearson(ranks(a), ranks(b))
+
+
+def _matched_pair_section(prof: list[SweepRow]) -> list[str]:
+    """Report controlled pairs: same block count, near-identical MACs.
+
+    A matched pair isolates *placement* from capacity, so it is stronger
+    evidence than a correlation across heterogeneous configurations.
+    """
+    pairs = []
+    for a in prof:
+        for b in prof:
+            if a.name >= b.name:
+                continue
+            na = sum(a.enc_blk_nums) + a.middle_blk_num + sum(a.dec_blk_nums)
+            nb = sum(b.enc_blk_nums) + b.middle_blk_num + sum(b.dec_blk_nums)
+            if na != nb or a.width != b.width:
+                continue
+            mac_gap = abs(a.complexity.macs - b.complexity.macs) / max(
+                a.complexity.macs, b.complexity.macs)
+            if mac_gap > 0.02:
+                continue
+            fast, slow = sorted((a, b), key=lambda r: r.device.inference_latency_ms)
+            pairs.append((na, mac_gap, fast, slow))
+    if not pairs:
+        return []
+
+    L = ["### Controlled comparison — matched block count and MACs", "",
+         "| pair | blocks | GMACs | NPU ms | Δ latency |", "|---|---|---|---|---|"]
+    for nb, gap, fast, slow in sorted(pairs, key=lambda p: -(
+            p[3].device.inference_latency_ms / p[2].device.inference_latency_ms)):
+        delta = (slow.device.inference_latency_ms
+                 / fast.device.inference_latency_ms - 1) * 100
+        L.append(f"| `{fast.name}` vs `{slow.name}` | {nb} | "
+                 f"{fast.complexity.gmacs:.2f} vs {slow.complexity.gmacs:.2f} "
+                 f"({gap*100:.1f}% apart) | "
+                 f"{fast.device.inference_latency_ms:.2f} vs "
+                 f"{slow.device.inference_latency_ms:.2f} | **+{delta:.0f}%** |")
+    L += ["", "These pairs hold block count, width and MACs essentially "
+          "constant and vary only **where** the blocks sit in the pyramid. The "
+          "latency difference therefore cannot be attributed to capacity or "
+          "compute — it is placement, and specifically the number of "
+          "normalisations running at full resolution. This is a controlled "
+          "result and is stronger evidence than any correlation over "
+          "heterogeneous points.", ""]
+    return L
+
+
 def _norm_area_proxy(row: SweepRow) -> float:
     """Normalisation cost proxy: blocks weighted by their stage's spatial area.
 
@@ -276,21 +406,32 @@ def _device_findings(rows: list[SweepRow]) -> list[str]:
         return []
 
     lat = [r.device.inference_latency_ms for r in prof]
-    r_macs = _pearson(lat, [r.complexity.gmacs for r in prof])
-    r_blocks = _pearson(lat, [float(sum(r.enc_blk_nums) + r.middle_blk_num
-                                    + sum(r.dec_blk_nums)) for r in prof])
-    r_norm = _pearson(lat, [_norm_area_proxy(r) for r in prof])
+    macs = [r.complexity.gmacs for r in prof]
+    blocks = [float(sum(r.enc_blk_nums) + r.middle_blk_num + sum(r.dec_blk_nums))
+              for r in prof]
+    norm = [_norm_area_proxy(r) for r in prof]
     fallback = sum(r.device.npu_fallback_layers for r in prof)
+    n = len(prof)
 
     L = ["## What the device actually says", "",
-         f"| predictor | correlation with measured latency |", "|---|---|",
-         f"| GMACs | {r_macs:.2f} |",
-         f"| total block count | {r_blocks:.2f} |",
-         f"| normalisation-area proxy | **{r_norm:.2f}** |", "",
+         f"Correlations with measured INT8 latency (**n={n}**, Pearson and "
+         "Spearman rank):", "",
+         "| predictor | Pearson r | Spearman ρ |", "|---|---|---|",
+         f"| GMACs | {_pearson(lat, macs):.2f} | {_spearman(lat, macs):.2f} |",
+         f"| total block count | {_pearson(lat, blocks):.2f} | "
+         f"{_spearman(lat, blocks):.2f} |",
+         f"| normalisation-area proxy | **{_pearson(lat, norm):.2f}** | "
+         f"**{_spearman(lat, norm):.2f}** |", "",
+         f"> With n={n} heterogeneous configurations these correlations are "
+         "indicative, not conclusive — the gap between the MAC and "
+         "normalisation predictors should not be over-read. The controlled "
+         "comparison below is the stronger evidence.", "",
          f"**NPU->CPU fallback across all profiled configs: {fallback} layers.** "
          "Every op ran on the Hexagon NPU, so the static CAUTION verdicts in "
          "`export_smoke_test.md` overstated the *support* risk — nothing was "
          "rejected or offloaded.", ""]
+
+    L += _matched_pair_section(prof)
 
     # Find the sharpest MACs-mispredicts-latency inversion.
     worst = None
@@ -325,7 +466,7 @@ def _device_findings(rows: list[SweepRow]) -> list[str]:
 
 
 def build_report(teacher: Complexity, rows: list[SweepRow],
-                 family: dict[str, SweepRow], min_factor: float,
+                 family: dict[str, SweepRow], params_ceiling: float,
                  aihub_error: str | None, input_shape: tuple[int, ...],
                  warnings: list[str] | None = None) -> str:
     """Render reports/student_sweep.md."""
@@ -333,45 +474,59 @@ def build_report(teacher: Complexity, rows: list[SweepRow],
     L = [
         "# Student architecture sweep — Task 1.5a", "",
         f"All figures at **{res}**, batch 1. **MACs = FLOPs/2** "
-        "(`torch.utils.flop_counter`, convention pinned by a unit test).",
-        "",
-        "Selection is by **MACs and on-device latency, not parameters**: a NAFBlock "
-        "at H/8 costs ~1/64 the MACs of the same block at full resolution, so "
-        "parameter count cannot rank these architectures by cost.", "",
-        "## Teacher reference (measured, not quoted)", "",
+        "(`torch.utils.flop_counter`, convention pinned by a unit test). "
+        "On-device figures measured on Qualcomm AI Hub, Samsung Galaxy S24 "
+        "(Snapdragon 8 Gen 3, Hexagon v75), INT8 QNN context binary.", "",
+        "Selection priority: **measured on-device latency -> peak activation "
+        "memory -> GMACs -> params**. Parameters are a *ceiling*, not a target.",
+        "", "## Teacher reference (measured, not quoted)", "",
         f"**AdaIR** — `{teacher.mparams:.2f}M` params, "
         f"**`{teacher.gmacs:.2f}` GMACs** @ {res}.", "",
         "> Measured by instantiating `third_party/AdaIR`. Note the counter does "
         "not model the FFT work in AdaIR's frequency modules, so this is a mild "
         "*under*-estimate of true teacher cost — reduction ratios below are "
         "therefore conservative.", "",
-        f"Compression rule: an arm counts only if **both** params and MACs shrink "
-        f"by ≥{min_factor:g}x (params ≤ {teacher.mparams / min_factor:.2f}M, "
-        f"MACs ≤ {teacher.gmacs / min_factor:.2f} GMACs).", "",
+        f"Parameter ceiling: **{params_ceiling/1e6:.0f}M** (bounds model size "
+        "only). The former '>=4x reduction on both params and MACs' rule is "
+        "**retired** — it rejected every width-32 candidate and forced a "
+        "latency-degenerate family.", "",
         "## Sweep results", "",
     ]
 
     has_dev = any(r.device is not None for r in rows)
-    hdr = ("| config | width | blocks | params | GMACs | params÷ | MACs÷ | "
-           "≥4x both |")
-    sep = "|---|---|---|---|---|---|---|---|"
+    hdr = ("| config | width | blocks | params | GMACs | MACs÷ | ≤ceiling |")
+    sep = "|---|---|---|---|---|---|---|"
     if has_dev:
-        hdr += " NPU ms | compiled |"
-        sep += "---|---|"
+        hdr += " **NPU ms** | peak mem MB | fallback |"
+        sep += "---|---|---|"
     L += [hdr, sep]
 
-    for r in sorted(rows, key=lambda r: r.complexity.macs):
+    # Sort by measured latency when available -- the primary selection axis.
+    def sort_key(r: SweepRow):
+        if r.device and r.device.inference_latency_ms:
+            return (0, r.device.inference_latency_ms)
+        return (1, r.complexity.macs)
+
+    for r in sorted(rows, key=sort_key):
         line = (f"| `{r.name}` | {r.width} | {r.block_name} | "
                 f"{r.complexity.mparams:.2f}M | {r.complexity.gmacs:.2f} | "
-                f"{r.param_reduction:.1f}x | {r.mac_reduction:.1f}x | "
+                f"{r.mac_reduction:.1f}x | "
                 f"{'yes' if r.eligible else '**no**'} |")
         if has_dev:
             d = r.device
-            line += (f" {d.inference_latency_ms:.1f} |" if d and d.inference_latency_ms
-                     else " n/a |")
-            line += f" {'yes' if d and d.compiled else 'no'} |" if d else " n/a |"
+            line += (f" **{d.inference_latency_ms:.2f}** |"
+                     if d and d.inference_latency_ms else " n/a |")
+            line += (f" {d.peak_memory_mb:.0f} |"
+                     if d and d.peak_memory_mb else " n/a |")
+            line += (f" {d.npu_fallback_layers} |" if d else " n/a |")
         L.append(line)
-    L.append("")
+    L += ["",
+          "> **Peak memory is total footprint** (weights + activations + runtime), "
+          "not the incremental working set. It is ~98-101 MB across *every* "
+          "config including the smallest, i.e. dominated by fixed QNN runtime "
+          "overhead rather than by model size — so on this device it does not "
+          "discriminate between candidates, but it does set the floor any edge "
+          "memory budget must clear.", ""]
 
     L += _device_findings(rows)
 
@@ -462,17 +617,16 @@ def main() -> None:
     seed_everything(args.seed)
     cfg = load_yaml(args.config)
     shape = tuple(require(cfg, "input_shape", context=_CTX_SWEEP))
-    min_factor = cfg.get("min_compression_factor", 4.0)
+    params_ceiling = cfg.get("params_ceiling", 10_000_000)
+    min_span = cfg.get("family_invariants", {}).get("min_mac_span", 2.5)
 
     teacher = measure_teacher(cfg, shape)
     print(f"[sweep] teacher: {teacher.mparams:.2f}M params, {teacher.gmacs:.2f} GMACs")
 
-    rows = measure_grid(build_grid(cfg), teacher, shape, min_factor)
-    family, warnings = assign_family(
-        rows, require(cfg, "family_targets", context=_CTX_SWEEP))
-    for w in warnings:
-        print(f"[sweep] WARNING: {w}")
+    rows = measure_grid(build_grid(cfg), teacher, shape, params_ceiling)
 
+    # Profile BEFORE selecting: latency is the primary selection axis, so the
+    # family must be chosen with the device numbers in hand.
     use_hub = cfg.get("aihub", {}).get("enabled", False) if args.aihub is None else args.aihub
     aihub_error = None
     if use_hub:
@@ -480,11 +634,16 @@ def main() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         aihub_error = run_aihub(rows, cfg, out_dir, shape)
         if aihub_error:
-            print("[sweep] AI Hub unavailable; params/MACs reported without "
-                  "on-device numbers.")
+            print("[sweep] AI Hub unavailable; selecting on MACs only.")
 
-    report = build_report(teacher, rows, family, min_factor, aihub_error, shape,
-                          warnings)
+    family, warnings = assign_family(
+        rows, cfg.get("family_targets"),
+        params_ceiling=params_ceiling, min_mac_span=min_span)
+    for w in warnings:
+        print(f"[sweep] WARNING: {w}")
+
+    report = build_report(teacher, rows, family, params_ceiling, aihub_error,
+                          shape, warnings)
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(report, encoding="utf-8")
     print(f"[sweep] report -> {args.report}")
