@@ -27,15 +27,15 @@ Compression rule: an arm counts only if **both** params and MACs shrink by ≥4x
 | `w24_sidd` | 24 | sidd | 16.46M | 9.11 | 1.7x | 17.7x | **no** | 6.1 | yes |
 | `w32_b14` | 32 | b14 | 12.42M | 10.66 | 2.3x | 15.2x | **no** | 3.6 | yes |
 | `w32_b28` | 32 | b28 | 17.11M | 15.96 | 1.7x | 10.1x | **no** | 4.5 | yes |
-| `w32_sidd` | 32 | sidd | 29.16M | 16.05 | 1.0x | 10.1x | **no** | n/a | no |
+| `w32_sidd` | 32 | sidd | 29.16M | 16.05 | 1.0x | 10.1x | **no** | 6.2 | yes |
 
 ## What the device actually says
 
 | predictor | correlation with measured latency |
 |---|---|
-| GMACs | 0.50 |
-| total block count | 0.74 |
-| normalisation-area proxy | **0.82** |
+| GMACs | 0.66 |
+| total block count | 0.75 |
+| normalisation-area proxy | **0.87** |
 
 **NPU->CPU fallback across all profiled configs: 0 layers.** Every op ran on the Hexagon NPU, so the static CAUTION verdicts in `export_smoke_test.md` overstated the *support* risk — nothing was rejected or offloaded.
 
@@ -104,3 +104,4 @@ Real AI Hub compilation and profiling completed; see the NPU columns above.
 - `w32_b8`: compute units {'NPU': 637}, peak 8 MB
 - `w32_b14`: compute units {'NPU': 853}, peak 9 MB
 - `w32_b28`: compute units {'NPU': 1321}, peak 8 MB
+- `w32_sidd`: compute units {'NPU': 1321}, peak 100 MB
