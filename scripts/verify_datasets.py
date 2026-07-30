@@ -33,6 +33,7 @@ class DatasetCheck:
     expected: int | None = None
     layout: str = "flat"
     problems: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     sizes: dict[str, int] = field(default_factory=dict)
     modes: dict[str, int] = field(default_factory=dict)
 
@@ -90,10 +91,12 @@ def check_entry(name: str, spec: dict, data_root: Path) -> DatasetCheck:
 
         ins, tgts = _images(inp), _images(tgt)
         check.n_files = len(ins)
-        if len(ins) != len(tgts):
-            check.problems.append(
-                f"pair count mismatch: {len(ins)} input vs {len(tgts)} target")
-        # Pairing rule differs per task; check stem-prefix pairing generically.
+
+        # Pairing may legitimately be many-to-one: SOTS-outdoor ships 500 hazy
+        # images over 492 unique scenes (8 scenes carry two atmospheric-parameter
+        # variants), and AdaIR resolves the target by name.split('_')[0]
+        # (dataset_utils.py:329-331). So the check that matters is "every input
+        # resolves to a target", NOT "counts are equal".
         tgt_stems = {p.stem for p in tgts}
         unpaired = [p.name for p in ins
                     if p.stem not in tgt_stems
@@ -102,6 +105,18 @@ def check_entry(name: str, spec: dict, data_root: Path) -> DatasetCheck:
             check.problems.append(
                 f"{len(unpaired)} input(s) with no matching target, e.g. "
                 f"{unpaired[:3]}")
+
+        orphan_targets = tgt_stems - {p.stem for p in ins} - {
+            p.stem.split("_")[0] for p in ins}
+        if orphan_targets:
+            check.problems.append(
+                f"{len(orphan_targets)} target(s) with no matching input, e.g. "
+                f"{sorted(orphan_targets)[:3]}")
+
+        if len(ins) != len(tgts):
+            # Informational, not a failure — recorded so the ratio stays visible.
+            check.notes.append(
+                f"many-to-one pairing: {len(ins)} inputs over {len(tgts)} targets")
         _inspect(ins, check)
     else:
         files = _images(path)
@@ -154,6 +169,8 @@ def main() -> None:
         exp = "-" if c.expected is None else str(c.expected)
         print(f"[verify] {status} {c.name:<{width}} files={c.n_files:<6} "
               f"expected={exp:<6} {c.sizes if c.sizes else ''}")
+        for n in c.notes:
+            print(f"           - {n}")
         for p in c.problems:
             print(f"           ! {p}")
 

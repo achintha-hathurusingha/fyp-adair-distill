@@ -71,10 +71,50 @@ def prepare_rain(zip_path: Path, dest: Path) -> dict[str, int]:
             "degraded_only": len(set(degraded) - set(clean))}
 
 
+def prepare_sots(zip_path: Path, dest: Path, split: str = "outdoor") -> dict[str, int]:
+    """Extract SOTS ``hazy``/``gt`` into ``dest/{input,target}``.
+
+    Names are preserved verbatim: AdaIR resolves the dehaze target as
+    ``name.split('_')[0] + '.png'`` (``dataset_utils.py:329-331``), which the
+    released ``0001_0.8_0.2.jpg`` -> ``0001.png`` naming already satisfies.
+
+    Pairing here is legitimately **many-to-one** — SOTS-outdoor ships 500 hazy
+    images over 492 unique scenes, 8 scenes carrying two atmospheric-parameter
+    variants.
+    """
+    with zipfile.ZipFile(zip_path) as z:
+        members = [n for n in z.namelist()
+                   if not n.endswith("/") and f"SOTS/{split}/" in n]
+        hazy = [n for n in members if "/hazy/" in n]
+        gt = [n for n in members if "/gt/" in n]
+        if not hazy or not gt:
+            raise ValueError(f"{zip_path.name}: no hazy/gt under SOTS/{split}")
+
+        inp, tgt = dest / "input", dest / "target"
+        inp.mkdir(parents=True, exist_ok=True)
+        tgt.mkdir(parents=True, exist_ok=True)
+        for src_name, out_dir in ((h, inp) for h in hazy):
+            with z.open(src_name) as src, \
+                    (out_dir / Path(src_name).name).open("wb") as fh:
+                shutil.copyfileobj(src, fh)
+        for src_name in gt:
+            with z.open(src_name) as src, \
+                    (tgt / Path(src_name).name).open("wb") as fh:
+                shutil.copyfileobj(src, fh)
+
+    gt_ids = {Path(n).stem for n in gt}
+    unpaired = [Path(n).name for n in hazy
+                if Path(n).stem.split("_")[0] not in gt_ids]
+    return {"inputs": len(hazy), "targets": len(gt),
+            "unique_scenes": len(gt_ids), "unpaired": len(unpaired)}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Prepare datasets into AdaIR layout.")
     ap.add_argument("--dl-dir", default="data/_dl_rain")
+    ap.add_argument("--sots-zip", default="data/_dl_sots/SOTS.zip")
     ap.add_argument("--derain", action="store_true")
+    ap.add_argument("--dehaze", action="store_true")
     args = ap.parse_args()
 
     data_root = Path(load_paths()["data_root"])
@@ -103,8 +143,23 @@ def main() -> None:
             if stats["pairs"] != expected:
                 raise SystemExit(
                     f"{zip_path.name}: {stats['pairs']} pairs != expected {expected}")
-    else:
-        ap.error("nothing to do; pass --derain")
+    if args.dehaze:
+        sots = Path(args.sots_zip)
+        if not sots.is_absolute():
+            sots = REPO_ROOT / sots
+        if not sots.exists():
+            raise SystemExit(f"SOTS archive not found at {sots}")
+        dest = data_root / "test" / "dehaze"
+        stats = prepare_sots(sots, dest, split="outdoor")
+        print(f"[prepare] SOTS.zip (outdoor)   -> {dest}  "
+              f"inputs={stats['inputs']} targets={stats['targets']} "
+              f"scenes={stats['unique_scenes']} unpaired={stats['unpaired']}")
+        if stats["unpaired"]:
+            raise SystemExit(
+                f"{stats['unpaired']} hazy image(s) have no ground truth")
+
+    if not (args.derain or args.dehaze):
+        ap.error("nothing to do; pass --derain and/or --dehaze")
 
 
 if __name__ == "__main__":
