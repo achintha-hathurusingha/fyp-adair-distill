@@ -1,0 +1,27 @@
+# Dataset and output roots. NO absolute paths in tracked code — everything
+# reads from here (or from the DATA_ROOT / RUNS_ROOT env vars, which override
+# these values when set).
+#
+# Copy to configs/paths.local.yaml and edit for your machine; the .local file
+# is gitignored. Values here are the committed defaults (relative to repo root).
+
+# Root under which all datasets live. Overridden by env var DATA_ROOT.
+data_root: ./data
+
+# Root under which all run directories are written. Overridden by env var RUNS_ROOT.
+runs_root: ./runs
+
+# Per-dataset subdirectories under data_root (3-degradation protocol).
+datasets:
+  bsd400:      denoise/BSD400
+  wed:         denoise/WED
+  bsd68:       denoise/BSD68
+  urban100:    denoise/Urban100
+  rain100l:    derain/Rain100L
+  reside_its:  dehaze/RESIDE/ITS
+  reside_ots:  dehaze/RESIDE/OTS
+  sots_outdoor: dehaze/RESIDE/SOTS/outdoor
+
+# Released teacher checkpoint (AdaIR 3-degradation). Overridden by env var
+# ADAIR_CKPT. Left null until downloaded — teacher_wrapper raises if unset.
+adair_checkpoint: null

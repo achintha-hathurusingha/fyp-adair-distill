@@ -1,0 +1,29 @@
+# Phase 01 dependencies.
+#
+# For CUDA torch, install torch/torchvision separately from the cu121 index
+# BEFORE installing this file, e.g.:
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+# Otherwise the pinned CPU builds below are used (sufficient for Gate G1
+# export, but training in Task 5 wants CUDA).
+
+torch==2.5.1
+torchvision==0.20.1
+
+# export + quantization
+onnx==1.17.0
+onnxruntime==1.20.1
+
+# data / metrics
+numpy>=1.26,<3
+opencv-python==4.10.0.84
+scikit-image==0.24.0
+Pillow==10.4.0
+
+# config / io / cli
+PyYAML==6.0.2
+tqdm==4.66.5
+tabulate==0.9.0
+psutil==6.0.0
+
+# testing
+pytest==8.3.3

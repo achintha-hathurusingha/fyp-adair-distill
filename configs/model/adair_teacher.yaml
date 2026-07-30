@@ -1,0 +1,7 @@
+# AdaIR teacher (frozen). Integrated in Task 3, not used in Task 1.
+# Architecture params here are placeholders until the released checkpoint and
+# repo are vendored under third_party/; teacher_wrapper asserts an exact load.
+name: adair
+img_channels: 3
+checkpoint: null        # resolved from paths.yaml adair_checkpoint / ADAIR_CKPT
+eval_only: true         # teacher is inference + caching only in Phase 01

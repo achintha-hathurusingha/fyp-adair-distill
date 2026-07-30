@@ -1,0 +1,35 @@
+# B0 baseline (Task 5): NAFNet-w32 trained on GT with Charbonnier loss only.
+# NO teacher involvement. This is the reference point for the whole project.
+# Scaffolded now; trainer implemented in Task 5.
+experiment: b0_baseline
+model: configs/model/nafnet_w32.yaml
+
+data:
+  patch_size: 256
+  batch_size: 16
+  mixed_task: true          # balance denoise/derain/dehaze per batch
+  num_workers: 8
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 300000
+  warmup_iters: 5000
+  min_lr: 1.0e-6
+
+train:
+  ema_decay: 0.999
+  amp: true
+  val_every: 5000
+  ckpt_every: 5000
+  seeds: [0, 1, 2]
+
+loss:
+  name: charbonnier          # reconstruction only in Phase 01
+  eps: 1.0e-3

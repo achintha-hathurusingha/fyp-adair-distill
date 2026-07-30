@@ -1,0 +1,15 @@
+# NAFNet student, width 32. Clean-room implementation in src/models/nafnet.py.
+# Block counts follow the official NAFNet-width32 config
+# (enc [2,2,4,8], middle 12, dec [2,2,2,2]).
+name: nafnet
+img_channels: 3
+width: 32
+enc_blk_nums: [2, 2, 4, 8]
+middle_blk_num: 12
+dec_blk_nums: [2, 2, 2, 2]
+
+# Channel gate (src/models/gate.py). Export-critical module; ops restricted to
+# GAP -> 1x1 conv -> ReLU -> 1x1 conv -> sigmoid -> channel-wise multiply.
+gate:
+  enabled: false        # G1 exports both with and without, driven by CLI flag
+  reduction: 4          # bottleneck channel reduction in the gate

@@ -1,0 +1,7 @@
+# Deraining task config (3-degradation protocol).
+# Rain100L: 200 train / 100 test paired images.
+task: derain
+train_datasets: [rain100l]
+test_datasets: [rain100l]
+split: {train: 200, test: 100}
+color: rgb

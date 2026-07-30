@@ -1,0 +1,6 @@
+# Dehazing task config (3-degradation protocol).
+# Train: RESIDE ITS/OTS. Test: SOTS-outdoor.
+task: dehaze
+train_datasets: [reside_its, reside_ots]
+test_datasets: [sots_outdoor]
+color: rgb

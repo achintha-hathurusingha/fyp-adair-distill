@@ -1,0 +1,7 @@
+# Denoising task config (3-degradation protocol).
+# Train: BSD400 + WED. Test: BSD68 + Urban100. Gaussian noise sigma in {15,25,50}.
+task: denoise
+train_datasets: [bsd400, wed]
+test_datasets: [bsd68, urban100]
+noise_sigmas: [15, 25, 50]     # on 0-255 scale
+color: rgb                     # synthesise noise on RGB

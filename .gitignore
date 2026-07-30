@@ -1,0 +1,32 @@
+# datasets & derived data (large / regenerable, never committed)
+/data/**
+!/data/**/.gitkeep
+
+# run outputs: checkpoints, logs, metrics, exported models
+/runs/**
+!/runs/**/.gitkeep
+*.pth
+*.ckpt
+*.onnx
+*.tflite
+
+# reports keep their .md (committed) but not large attached artifacts
+/reports/**/*.png
+/reports/**/*.onnx
+
+# local paths override (contains machine-specific absolute paths)
+configs/paths.local.yaml
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
+build/
+dist/
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/
