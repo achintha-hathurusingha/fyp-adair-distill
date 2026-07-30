@@ -174,6 +174,42 @@ fusion-matched pattern. **Untested.**
 
 ---
 
+## F5. A 2025 paper's evaluation code cannot run on a 2026 environment, and one failure mode is silent
+
+AdaIR (ICLR 2025) pins `scikit-image==0.19.3` and `scikit-video==1.1.11`
+(`env.yaml:221-222`). On a current environment (scikit-image 0.24, NumPy 2.x)
+its evaluation path fails two ways:
+
+1. **Loud.** `utils/val_utils.py:5` does `from skvideo.measure import niqe` at
+   *module scope*. `scikit-video` is unmaintained and does not install cleanly on
+   NumPy 2.x, so the import kills the module before any metric runs — even though
+   `niqe` is never used by the three tasks in the protocol.
+
+2. **Silent, and the dangerous one.** `utils/val_utils.py:62` calls
+   `structural_similarity(..., multichannel=True)`. That argument was deprecated
+   in scikit-image 0.19 and **removed in 0.23**. It is not rejected: it is
+   swallowed by `**kwargs` and ignored, leaving `channel_axis=None`, so a
+   `(H, W, 3)` image is treated as a **3-D volume** and a volumetric SSIM is
+   returned instead of the mean of per-channel 2-D SSIMs.
+
+   In our case it happened to raise (`win_size exceeds image extent`, because the
+   channel axis is 3 < 7). **That was luck, not safety** — for a tensor whose
+   channel count is ≥ `win_size`, or with an explicit `win_size`, it returns a
+   plausible wrong number with no warning.
+
+**Why this matters beyond AdaIR.** The AirNet / PromptIR / AdaIR lineage shares
+this evaluation code. Anyone reproducing any of it on a modern environment risks
+SSIM values that are silently non-comparable with the published tables — the
+exact failure that convention-locking is supposed to prevent.
+
+**Practical rules adopted here:** never rely on a library default that has
+already changed once — pass `channel_axis=-1` explicitly and pin it with a
+known-answer test; and run the original artifact in its *own* pinned environment
+rather than a patched modern one, so "reproduces" means the released code, not
+our edit of it.
+
+---
+
 ## AI Hub job IDs (verifiable provenance)
 
 Every on-device number in this repository traces to a job below. Job pages are

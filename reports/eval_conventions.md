@@ -104,12 +104,26 @@ noisy_patch = np.clip(clean_patch + noise * self.sigma, 0, 255).astype(np.uint8)
 
 ## Discrepancies and risks found
 
-### R1. Urban100 is not evaluated by AdaIR's test script
+### R1. Urban100 — RESOLVED: not part of the 3-degradation protocol
 
-`test.py:120` sets `denoise_splits = ["bsd68/"]`. The 3-degradation protocol as
-specified to us lists **BSD68 + Urban100**, but AdaIR's released evaluation only
-runs **BSD68**. Urban100 appears in `INSTALL.md` as a *download*, not as a test
-split in the code. **Decision needed** — see open questions.
+`test.py:120` sets `denoise_splits = ["bsd68/"]`. Checking this against the
+paper's own results table (`figs/adair3d.PNG`) rather than against the script:
+
+| Method | Dehazing SOTS | Deraining Rain100L | Denoising **on BSD68** σ=15 / 25 / 50 | Average |
+|---|---|---|---|---|
+| **AdaIR (Ours)** | **31.06 / 0.980** | **38.64 / 0.983** | **34.12 / 0.935** · **31.45 / 0.892** · **28.19 / 0.802** | **32.69 / 0.918** |
+
+The table header reads "Denoising on BSD68". **Urban100 does not appear in the
+3-degradation table at all**, so the released script and the published claim
+agree — there is no partial-script discrepancy. Urban100 appears in `INSTALL.md`
+only as a download (it is used in AdaIR's *single-task* denoising experiments,
+which are a different setting).
+
+**Resolution: BSD68 is the protocol.** Urban100 is out of scope, and dropped
+from our protocol table. This also removes the need for tiled teacher inference
+— Urban100's ~1024² images were the only thing that would have forced it.
+
+**These are the G2/G3 target numbers**, to be matched within ±0.10 dB.
 
 ### R2. AdaIR's evaluation code cannot run on a modern environment (blocks G2)
 
@@ -178,15 +192,25 @@ default is a single shared convention.
 
 ---
 
-## Open questions — need a decision before `metrics.py` is written
+## Decisions taken
 
-1. **Urban100 (R1).** AdaIR's code does not evaluate it. Options: (a) restrict to
-   BSD68 and match the teacher exactly; (b) add Urban100 to our harness as an
-   extra column, clearly marked as *not* part of the teacher's reported protocol.
-   (b) is more informative but the numbers are not teacher-comparable.
-2. **G2 legacy environment.** Confirm we should build a Python 3.8 /
-   scikit-image 0.19.3 environment to run AdaIR unmodified, rather than patching
-   two lines in their code and calling it "unmodified".
-3. **`os.listdir` ordering (R3).** Confirm our harness should sort filenames —
-   deviating from AdaIR in a way that *improves* reproducibility but could shift
-   denoise numbers very slightly versus their published values.
+1. **Urban100 (R1) — RESOLVED empirically.** The paper reports denoising on
+   BSD68 only; Urban100 is not in the 3-degradation table. BSD68 is the
+   protocol, Urban100 is out of scope, tiled inference is not needed.
+2. **G2 legacy environment — BUILD IT.** A pinned Python 3.8.11 / torch 1.13.1 /
+   scikit-image 0.19.3 / scikit-video 1.1.11 environment, so AdaIR's artifact
+   runs genuinely unmodified. G2 exists to test whether the *released artifact*
+   reproduces the *published claim*; patching the artifact would validate
+   something else. Single-use, archived after G2, nothing downstream depends on
+   it. Timeboxed to two days — the likely failure is CUDA/driver incompatibility
+   with torch 1.13.1. On fallback, every patch is diffed and recorded here.
+3. **Noise seeding (R3) — filename-derived, not sorted.**
+   `seed = int(sha256(filename)[:8], 16)` per image. Sorting fixes only
+   cross-machine ordering and breaks the moment a file is added; a filename hash
+   is order-independent *and* stable across filesystems and re-downloads.
+   Noisy test inputs are then generated **once** and frozen as uint8 PNGs, so
+   noise realisation stops being an experimental variable at all.
+   **For G2 we accept AdaIR's unsorted global-seed behaviour** — we are
+   validating their code, not improving it. G3 reports both numbers and the
+   delta; anything under 0.05 dB sits inside the ±0.10 dB tolerance and is
+   documented as a known, quantified difference.
