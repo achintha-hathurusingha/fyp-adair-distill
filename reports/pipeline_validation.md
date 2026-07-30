@@ -96,14 +96,18 @@ of them.
 
 ## G2 — reproduction with *their* code
 
-**Status: not run. Superseded in value by G3, and blocked by dependency-graph
-decay rather than by anything in AdaIR's research code.**
+**Status: SUPERSEDED BY G3.** Not "skipped" — the evidence G2 was designed to
+produce has been obtained by a stronger route.
 
-G2's purpose was to establish that the released artifact reproduces the
-published claim, so that a G3 failure could be localised. **G3 passed at ±0.01 dB
-across 804 images**, which jointly validates checkpoint, inference, data loading
-and metrics — and the golden oracle independently validates the metric half. The
-question G2 was designed to answer has been answered by other means.
+G2 would have shown that *AdaIR's code reproduces AdaIR's numbers*. G3 shows
+that *an independently written pipeline reproduces AdaIR's numbers*, which
+**subsumes it**: convention tracing, crop geometry, checkpoint loading,
+degradation synthesis, pairing rules and metric implementation are all
+constrained simultaneously, and an error in any one would have surfaced in at
+least one of five conditions. The metric half is additionally validated on its
+own by the golden oracle.
+
+Its remaining purpose — localising a G3 failure — is moot, because G3 passed.
 
 Reconstructing the environment surfaced three obstacles, all recorded in
 `findings.md` F5:
@@ -130,6 +134,66 @@ The environment is otherwise ready.
 ±0.01 dB by an independent route, at the cost of a large download and further
 dependency archaeology. Recorded as deliberately skipped, with the exact steps
 to complete it, rather than quietly dropped.
+
+---
+
+## Specialist vs all-in-one — the Option 2 premise
+
+Measured through the same locked harness, all-in-one `adair3d` against each
+single-task specialist on its own test set.
+
+| test set | n | all-in-one | specialist | **ΔPSNR** | ΔSSIM |
+|---|---|---|---|---|---|
+| denoise BSD68 σ=15 | 68 | 34.12 | 34.36 | **+0.240** | +0.0030 |
+| denoise BSD68 σ=25 | 68 | 31.46 | 31.72 | **+0.265** | +0.0051 |
+| denoise BSD68 σ=50 | 68 | 28.19 | 28.49 | **+0.306** | +0.0105 |
+| derain Rain100L | 100 | 38.64 | 38.89 | **+0.254** | +0.0016 |
+| dehaze SOTS-outdoor | 500 | 31.06 | 31.80 | **+0.732** | +0.0005 |
+
+**Mean advantage +0.359 dB** — the *marginal* band (0.2–0.5 dB).
+
+### The mean hides the structure, and the structure is the finding
+
+The advantage is **not uniform**. Dehazing is **+0.732 dB** — comfortably above
+the 0.5 dB "real headroom" threshold on its own — while denoising and deraining
+cluster tightly at **+0.24 to +0.31 dB**. Dehaze is ~2.7× the others.
+
+So "specialists are marginally better" is the wrong summary. The accurate one is
+that **one task has real headroom and two do not**, which suggests a targeted
+rather than uniform application: if multi-teacher is pursued, the dehaze branch
+is where the surplus actually lives.
+
+A plausible reading is that dehazing is the most globally-structured of the
+three degradations — haze is a low-frequency, depth-dependent transformation
+requiring scene-level inference — so it competes hardest for capacity in a shared
+model. That is a hypothesis, not a result, and this table does not test it.
+
+### Independent corroboration of the harness
+
+The measured single-task denoising values (**34.36 / 31.72 / 28.49**) match
+AdaIR's *published single-task* figures to two decimals on all three sigmas.
+Those figures were obtained from a secondary source rather than the paper PDF
+(which exceeded fetch limits), so the corroboration is suggestive rather than
+authoritative — but a three-way exact match is unlikely by chance. On that
+reading the harness reproduces **both** published tables, not just the
+all-in-one one.
+
+### The confound stands
+
+The specialists were **not trained on a common protocol** — epoch counts, step
+counts and steps-per-epoch all differ from each other and from the all-in-one
+(`reports/checkpoint_audit.md`). Differing steps-per-epoch implies differing
+training-set sizes. Every number above therefore mixes *specialisation* with *a
+different training run*, and the artifacts alone cannot separate them.
+
+This matters most for dehaze, the one task with real headroom: `single-dehaze`
+ran 9,017 steps/epoch against `adair3d`'s 4,338, so it saw roughly twice the
+data per epoch. Part of +0.732 dB is plausibly that, not specialisation.
+
+**Cost note:** multi-teacher adds ~zero GPU cost over single-teacher — each
+sample carries exactly one degradation type and routes to exactly one
+specialist, so it is one teacher forward per sample either way, and outputs
+cache identically. The real costs are storage (~1 GB) and routing complexity.
 
 ---
 

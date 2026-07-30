@@ -127,6 +127,56 @@ def test_seeding_modes_are_mutually_exclusive() -> None:
         add_gaussian_noise(_clean(), 15, rng=legacy_rng(0), filename="a.png")
 
 
+# --------------------------------------------------------------------------
+# golden hashes -- the frozen-cache substitute
+# --------------------------------------------------------------------------
+
+#: SHA256 of the synthesised uint8 array for (filename, sigma) on a fixed clean
+#: image. We deliberately do NOT cache noisy test inputs to disk: per-image
+#: determinism already removes noise as an experimental variable. But that
+#: determinism is conditional on things a seed does not pin — NumPy's legacy
+#: MT19937 stream staying stable across versions, and `add_gaussian_noise` not
+#: being edited. A cache would be immune to both; these hashes give the same
+#: protection for one test and no storage.
+GOLDEN_NOISE_HASHES = {
+    ("0001.png", 15): "54dc42ea8525974e1e5f1f5de663c6e8dd618d74775c22fc5ec11d15c2f1187d",
+    ("0001.png", 25): "3eac2a9d0f65e9cd72911d941fe5c6f8cc3ec12e1a7cb8642c6b0c4ef4ef87dd",
+    ("0001.png", 50): "d566487001a7dc811a6cbd81a7b48e75b801f245b3e75440a59e4a99aff2e3e9",
+    ("img_042.png", 15): "29d1a3bd4c5378581300a44ef38a867ffa5390c57778f7dce0f147528ff49ac3",
+    ("img_042.png", 25): "eedb83ee8ee07e1213b2886c9e444f9e541d4426b4a5f7bcf4de232d6ee57d9d",
+    ("img_042.png", 50): "340b8f1a359368cb1009094c249c63864250011b829d2d89fcb8f284840730c8",
+    ("norain-001.png", 15): "4284e894869ac6c433f20e4b855e39bc1ed8bfe4bf8da05ac0de65c90188729a",
+    ("norain-001.png", 25): "7204cdcc836cf4e2f2ddd47b88c5bb655eb9fa84dfb438d4a0fa75883215c1de",
+    ("norain-001.png", 50): "6d898bf446e0f00e508b6d5cbfdaab8687472514bb969f7569f3e8c97f780cb1",
+}
+
+
+def _fixed_clean() -> np.ndarray:
+    """A deterministic clean image that needs no dataset on disk."""
+    return np.arange(32 * 32 * 3, dtype=np.uint8).reshape(32, 32, 3)
+
+
+@pytest.mark.parametrize(("key", "expected"), sorted(GOLDEN_NOISE_HASHES.items()))
+def test_synthesised_noise_matches_golden_hash(key, expected: str) -> None:
+    """Byte-exact regression pin on the synthesised noisy input.
+
+    Fails loudly if NumPy's legacy random stream changes across versions, or if
+    ``add_gaussian_noise`` is edited. Either would silently change every input
+    the project evaluates on, which is exactly the class of drift that makes
+    results non-comparable months later.
+    """
+    import hashlib
+
+    filename, sigma = key
+    out = add_gaussian_noise(_fixed_clean(), sigma, filename=filename)
+    digest = hashlib.sha256(out.tobytes()).hexdigest()
+    assert digest == expected, (
+        f"synthesised noise for {filename} at sigma={sigma} changed.\n"
+        f"  expected {expected}\n  actual   {digest}\n"
+        "Either NumPy's MT19937 stream changed, or degradations.py was edited. "
+        "Do not update this constant without understanding which.")
+
+
 @pytest.mark.parametrize("sigma", SIGMAS)
 def test_higher_sigma_is_noisier(sigma: int) -> None:
     clean = np.full((64, 64, 3), 128, dtype=np.uint8)
