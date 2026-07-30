@@ -1,0 +1,148 @@
+"""Normalization variants for the INT8 latency sweep (Task 1.5c).
+
+On-device profiling of `w16_b8` (Snapdragon 8 Gen 3, Hexagon v75, INT8) showed
+`LayerNorm2d` consuming ~62% of NPU cycles against ~3.4% for `Conv`, with no
+CPU fallback at all. The cost is fixed-point `Div`/`Sqrt` on the integer
+pipeline, and it is per-element — so normalisations at full resolution dominate.
+
+All variants live behind a single ``norm_type`` key so the model file is never
+forked. **Latency does not depend on weights**, so every variant here can be
+exported, quantized and profiled untrained; only the survivors need training.
+
+| id   | norm_type              | statistics | inference ops | retrain? |
+|------|------------------------|------------|---------------|----------|
+| N-A  | ``layernorm2d``        | mean+var   | many          | reference|
+| N-A' | ``layernorm2d_rsqrt``  | mean+var   | many (rsqrt)  | **no**   |
+| N-E  | ``affine``             | none       | fold-able     | yes      |
+| N-C  | ``identity``           | none       | zero          | yes      |
+| N-B  | ``batchnorm``          | running    | fold-able     | yes      |
+"""
+from __future__ import annotations
+
+import torch
+from torch import nn
+
+#: Every supported ``norm_type``. Unknown values raise (rule 9).
+NORM_TYPES = ("layernorm2d", "layernorm2d_rsqrt", "affine", "identity", "batchnorm")
+
+
+class LayerNorm2d(nn.Module):
+    """N-A (reference): channel-wise LayerNorm for NCHW tensors.
+
+    Exports to ReduceMean/Sub/Pow/Sqrt/Div. The `Div` and `Sqrt` are the
+    expensive fixed-point operations on Hexagon.
+    """
+
+    def __init__(self, channels: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(channels))
+        self.bias = nn.Parameter(torch.zeros(channels))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        mu = x.mean(dim=1, keepdim=True)
+        var = (x - mu).pow(2).mean(dim=1, keepdim=True)
+        x = (x - mu) / torch.sqrt(var + self.eps)
+        return x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
+
+
+class LayerNorm2dRsqrt(nn.Module):
+    """N-A': mathematically identical to :class:`LayerNorm2d`, with no `Div`.
+
+    Because the computed function is unchanged (to floating-point tolerance),
+    swapping N-A for N-A' is a **pure graph rewrite**: no retraining, no quality
+    ablation, and an N-A checkpoint loads directly.
+
+    Spelling matters, and the obvious spelling is a trap:
+
+    * ``torch.rsqrt(v)``  ->  ONNX ``Sqrt`` then ``Div(1, .)``. The `Div`
+      survives and an extra `Mul` is added — strictly **worse** than N-A.
+      Verified at opset 17 and 20.
+    * ``torch.reciprocal(torch.sqrt(v))``  ->  ONNX ``Sqrt`` then
+      ``Reciprocal``. `Div` count drops to zero.
+
+    The second form is used here. The expected win is not merely
+    "Reciprocal beats Div" but a change in *how many elements* the expensive
+    op touches: in N-A the division runs over the full ``(N, C, H, W)`` tensor
+    (broadcasting a ``(N, 1, H, W)`` denominator), whereas here `Reciprocal`
+    runs over just ``(N, 1, H, W)`` — a factor of ``C`` fewer elements — and
+    the full-size work becomes a cheap `Mul`.
+    """
+
+    def __init__(self, channels: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(channels))
+        self.bias = nn.Parameter(torch.zeros(channels))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        mu = x.mean(dim=1, keepdim=True)
+        var = (x - mu).pow(2).mean(dim=1, keepdim=True)
+        # NOTE: torch.reciprocal(torch.sqrt(.)), NOT torch.rsqrt(.) -- see docstring.
+        x = (x - mu) * torch.reciprocal(torch.sqrt(var + self.eps))
+        return x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
+
+
+class AffineNorm2d(nn.Module):
+    """N-E: per-channel learnable scale and bias. No statistics computed.
+
+    Zero reductions, zero division. Folds into an adjacent 1x1 convolution, so
+    at inference it can cost nothing at all. Needs retraining (it does not
+    normalise, so activation scales must be learned).
+    """
+
+    def __init__(self, channels: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        del eps  # unused; kept for a uniform constructor signature
+        self.weight = nn.Parameter(torch.ones(channels))
+        self.bias = nn.Parameter(torch.zeros(channels))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
+
+
+class IdentityNorm2d(nn.Module):
+    """N-C: no normalisation at all. Zero ops.
+
+    Training stability is unproven — expect to need a reduced learning rate.
+    """
+
+    def __init__(self, channels: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        del channels, eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x
+
+
+def build_norm(norm_type: str, channels: int, eps: float = 1e-6) -> nn.Module:
+    """Construct a normalisation module by name.
+
+    Args:
+        norm_type: one of :data:`NORM_TYPES`.
+        channels: channel count of the tensor being normalised.
+        eps: numerical epsilon (ignored by variants without statistics).
+
+    Raises:
+        ValueError: on an unknown ``norm_type`` — never silently defaults.
+    """
+    if norm_type == "layernorm2d":
+        return LayerNorm2d(channels, eps)
+    if norm_type == "layernorm2d_rsqrt":
+        return LayerNorm2dRsqrt(channels, eps)
+    if norm_type == "affine":
+        return AffineNorm2d(channels)
+    if norm_type == "identity":
+        return IdentityNorm2d(channels)
+    if norm_type == "batchnorm":
+        # N-B: latency datapoint only. BatchNorm folds to zero inference ops so
+        # it will look excellent, but it is NOT expected to win on quality:
+        #  1. EDSR and successors removed BN from restoration networks because
+        #     it degraded output quality; NAFNet's authors also avoided it.
+        #  2. BN statistics are computed over spatial dims as well as batch.
+        #     Training on 256x256 patches and evaluating on full-resolution
+        #     images gives running statistics that do not match test-time
+        #     activation distributions — a concrete train/test mismatch.
+        return nn.BatchNorm2d(channels, eps=eps)
+    raise ValueError(
+        f"Unknown norm_type {norm_type!r}. Supported: {list(NORM_TYPES)}")

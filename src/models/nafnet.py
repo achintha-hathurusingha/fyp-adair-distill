@@ -18,22 +18,9 @@ import torch.nn.functional as F
 from torch import nn
 
 from src.models.gate import ChannelGate
+from src.models.norms import LayerNorm2d, build_norm
 
-
-class LayerNorm2d(nn.Module):
-    """Channel-wise LayerNorm for NCHW tensors."""
-
-    def __init__(self, channels: int, eps: float = 1e-6) -> None:
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(channels))
-        self.bias = nn.Parameter(torch.zeros(channels))
-        self.eps = eps
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mu = x.mean(dim=1, keepdim=True)
-        var = (x - mu).pow(2).mean(dim=1, keepdim=True)
-        x = (x - mu) / torch.sqrt(var + self.eps)
-        return x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
+__all__ = ["LayerNorm2d", "NAFBlock", "NAFNet", "SimpleGate", "build_nafnet"]
 
 
 class SimpleGate(nn.Module):
@@ -45,12 +32,20 @@ class SimpleGate(nn.Module):
 
 
 class NAFBlock(nn.Module):
-    """NAFNet residual block: gated depthwise conv + simplified channel attn."""
+    """NAFNet residual block: gated depthwise conv + simplified channel attn.
 
-    def __init__(self, c: int, dw_expand: int = 2, ffn_expand: int = 2) -> None:
+    Args:
+        c: channel count.
+        dw_expand: depthwise expansion factor.
+        ffn_expand: feed-forward expansion factor.
+        norm_type: normalisation variant (see :mod:`src.models.norms`).
+    """
+
+    def __init__(self, c: int, dw_expand: int = 2, ffn_expand: int = 2,
+                 norm_type: str = "layernorm2d") -> None:
         super().__init__()
         dw = c * dw_expand
-        self.norm1 = LayerNorm2d(c)
+        self.norm1 = build_norm(norm_type, c)
         self.conv1 = nn.Conv2d(c, dw, 1)
         self.conv2 = nn.Conv2d(dw, dw, 3, padding=1, groups=dw)
         self.sg = SimpleGate()
@@ -60,7 +55,7 @@ class NAFBlock(nn.Module):
         )
         self.conv3 = nn.Conv2d(dw // 2, c, 1)
 
-        self.norm2 = LayerNorm2d(c)
+        self.norm2 = build_norm(norm_type, c)
         ffn = c * ffn_expand
         self.conv4 = nn.Conv2d(c, ffn, 1)
         self.conv5 = nn.Conv2d(ffn // 2, c, 1)
@@ -94,18 +89,37 @@ class NAFNet(nn.Module):
         use_gate: If True, insert a :class:`ChannelGate` after the stem conv
             (Gate G1 smoke-test hook; a placeholder for Phase-02 gating).
         gate_reduction: Reduction factor for the inserted gate.
+        norm_type: Normalisation used in every block (see
+            :mod:`src.models.norms`).
+        full_res_norm_type: Optional override applied ONLY to the
+            full-resolution stages (encoder level 0 and the matching decoder
+            level). This is variant **N-F**: on-device profiling showed the
+            four full-resolution norms alone account for ~40% of NPU cycles,
+            because normalisation cost is per-element. Replacing just those
+            with a cheap norm targets most of the cost while leaving deeper
+            stages — where normalisation is nearly free — untouched.
     """
 
     def __init__(self, img_channels: int = 3, width: int = 32,
                  enc_blk_nums: list[int] | None = None, middle_blk_num: int = 12,
                  dec_blk_nums: list[int] | None = None, *, use_gate: bool = False,
-                 gate_reduction: int = 4) -> None:
+                 gate_reduction: int = 4, norm_type: str = "layernorm2d",
+                 full_res_norm_type: str | None = None) -> None:
         super().__init__()
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
         dec_blk_nums = dec_blk_nums or [2, 2, 2, 2]
         if len(enc_blk_nums) != len(dec_blk_nums):
             raise ValueError("enc and dec must have equal stage counts, "
                              f"got {len(enc_blk_nums)} vs {len(dec_blk_nums)}")
+        self.norm_type = norm_type
+        self.full_res_norm_type = full_res_norm_type
+
+        def stage_norm(stage_idx: int, n_stages: int, *, decoder: bool) -> str:
+            """Norm for a stage; level 0 is full resolution at both ends."""
+            level = (n_stages - 1 - stage_idx) if decoder else stage_idx
+            if level == 0 and full_res_norm_type is not None:
+                return full_res_norm_type
+            return norm_type
 
         self.intro = nn.Conv2d(img_channels, width, 3, padding=1)
         self.gate = ChannelGate(width, gate_reduction) if use_gate else None
@@ -117,20 +131,26 @@ class NAFNet(nn.Module):
         self.ups = nn.ModuleList()
 
         chan = width
-        for n in enc_blk_nums:
-            self.encoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(n)]))
+        n_stages = len(enc_blk_nums)
+        for i, n in enumerate(enc_blk_nums):
+            nt = stage_norm(i, n_stages, decoder=False)
+            self.encoders.append(nn.Sequential(
+                *[NAFBlock(chan, norm_type=nt) for _ in range(n)]))
             self.downs.append(nn.Conv2d(chan, 2 * chan, 2, stride=2))
             chan *= 2
 
-        self.middle_blks = nn.Sequential(*[NAFBlock(chan) for _ in range(middle_blk_num)])
+        self.middle_blks = nn.Sequential(
+            *[NAFBlock(chan, norm_type=norm_type) for _ in range(middle_blk_num)])
 
-        for n in dec_blk_nums:
+        for i, n in enumerate(dec_blk_nums):
+            nt = stage_norm(i, len(dec_blk_nums), decoder=True)
             self.ups.append(nn.Sequential(
                 nn.Conv2d(chan, chan * 2, 1, bias=False),
                 nn.PixelShuffle(2),
             ))
             chan //= 2
-            self.decoders.append(nn.Sequential(*[NAFBlock(chan) for _ in range(n)]))
+            self.decoders.append(nn.Sequential(
+                *[NAFBlock(chan, norm_type=nt) for _ in range(n)]))
 
         self.padder_size = 2 ** len(enc_blk_nums)
 
@@ -168,8 +188,12 @@ class NAFNet(nn.Module):
         return F.pad(x, (0, pw, 0, ph))
 
 
-def build_nafnet(cfg: dict, *, use_gate: bool = False) -> NAFNet:
-    """Construct a :class:`NAFNet` from a model-config dict (see configs/model)."""
+def build_nafnet(cfg: dict, *, use_gate: bool = False,
+                 norm_type: str | None = None) -> NAFNet:
+    """Construct a :class:`NAFNet` from a model-config dict (see configs/model).
+
+    ``norm_type`` overrides the config value, for sweeping variants.
+    """
     gate_cfg = cfg.get("gate", {})
     return NAFNet(
         img_channels=cfg.get("img_channels", 3),
@@ -179,4 +203,6 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False) -> NAFNet:
         dec_blk_nums=cfg.get("dec_blk_nums"),
         use_gate=use_gate or gate_cfg.get("enabled", False),
         gate_reduction=gate_cfg.get("reduction", 4),
+        norm_type=norm_type or cfg.get("norm_type", "layernorm2d"),
+        full_res_norm_type=cfg.get("full_res_norm_type"),
     )
