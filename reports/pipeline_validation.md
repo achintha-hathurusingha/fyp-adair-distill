@@ -137,6 +137,58 @@ to complete it, rather than quietly dropped.
 
 ---
 
+## Convention grid — what each wrong convention costs
+
+24 combinations on **derain Rain100L** (100 images, published 38.64 / 0.983).
+The conventions were found by *tracing AdaIR's source*, not by searching this
+grid, so this is a **calibration demonstration rather than a fit**: it shows the
+locked setting is the best match and quantifies the error each deviation causes.
+Failures are included deliberately.
+
+| channel | crop | round | PSNR | **ΔPSNR** | SSIM(w=7) | SSIM(w=11) |
+|---|---|---|---|---|---|---|
+| **rgb** | **0** | **no** | **38.64** | **+0.00** | **0.9830** | 0.9846 |
+| rgb | 0 | yes | 38.62 | −0.02 | 0.9828 | 0.9845 |
+| rgb | 4 | no | 38.75 | +0.11 | 0.9833 | 0.9848 |
+| rgb | 4 | yes | 38.73 | +0.09 | 0.9831 | 0.9846 |
+| rgb | 8 | no | 38.74 | +0.10 | 0.9833 | 0.9849 |
+| rgb | 8 | yes | 38.71 | +0.07 | 0.9831 | 0.9847 |
+| y | 0 | no | 40.01 | **+1.37** | 0.9851 | 0.9864 |
+| y | 0 | yes | 39.99 | +1.35 | 0.9850 | 0.9863 |
+| y | 4 | no | 40.12 | **+1.48** | 0.9853 | 0.9865 |
+| y | 4 | yes | 40.10 | +1.46 | 0.9852 | 0.9864 |
+| y | 8 | no | 40.11 | +1.47 | 0.9853 | 0.9865 |
+| y | 8 | yes | 40.09 | +1.45 | 0.9852 | 0.9864 |
+
+### What the grid shows
+
+**The locked convention wins outright**: `rgb / crop 0 / no rounding` reproduces
+published PSNR to **+0.001 dB**. Nothing else is close.
+
+**Y-channel is by far the largest error source: +1.35 to +1.48 dB.** This is the
+important row. Deraining in the PReNet/MPRNet lineage *is* conventionally
+evaluated on the Y channel, and assuming that inheritance for AdaIR was a
+well-founded hypothesis. Had we adopted it, Rain100L would have read **40.01
+instead of 38.64** — a 1.37 dB inflation that would have looked like a strong
+result rather than a measurement error, and would have been invisible without a
+reference number to check against. This single row is the strongest argument in
+the project for tracing conventions from source rather than inheriting them.
+
+**Border cropping inflates by +0.07 to +0.11 dB**, because the cropped border
+pixels are where restoration is hardest. Enough to fabricate a "win" over a
+baseline, comfortably above the ±0.10 dB gate.
+
+**uint8 rounding costs −0.02 dB** — real, directional, and small, consistent
+with the +0.0033 dB measured for the synthesis-side cast.
+
+**SSIM window size does not affect PSNR, but SSIM discriminates it decisively.**
+`win_size=7` gives **0.9830** against the published **0.983**; `win_size=11`
+gives 0.9846, which does not match. So the two rows that tie on PSNR are
+separated by SSIM — and it confirms skimage's default 7-pixel uniform window
+rather than Wang's 11×11 Gaussian, which was the originally proposed default.
+
+---
+
 ## Specialist vs all-in-one — the Option 2 premise
 
 Measured through the same locked harness, all-in-one `adair3d` against each
