@@ -183,14 +183,37 @@ def build_report(audits: list[CheckpointAudit], ref_params: int) -> str:
                   "available.** This makes the specialist→generalist "
                   "(multi-teacher) direction viable in Phase 02 with no "
                   "third-party model sourcing.", "",
-                  "It is also a *cleaner* experiment than externally-sourced "
-                  "specialists would have been: these share the **same "
-                  "architecture** as the all-in-one teacher, so any student "
-                  "improvement is attributable to specialist knowledge rather "
-                  "than to architectural diversity among teachers. One "
-                  "codebase, one loading path, one licence.", "",
+                  "Architecturally they are identical to the all-in-one teacher "
+                  "— every checkpoint loads onto the same `AdaIR(decoder=True)` "
+                  "with the same parameter count — so one codebase, one loading "
+                  "path, one licence.", ""]
+
+            L += ["### Confound: the specialists were NOT trained on a common protocol",
+                  "",
+                  "| checkpoint | epoch | global_step | steps/epoch |",
+                  "|---|---|---|---|"]
+            for a in sorted(audits, key=lambda x: x.path.name):
+                if a.epoch and a.global_step:
+                    L.append(f"| `{a.path.name}` | {a.epoch} | "
+                             f"{a.global_step:,} | "
+                             f"{a.global_step / (a.epoch + 1):,.0f} |")
+            L += ["",
+                  "Epoch counts, step counts and steps-per-epoch all differ "
+                  "across the specialists and against the all-in-one. Differing "
+                  "steps-per-epoch implies **differing training-set sizes**, "
+                  "i.e. task-specific training protocols rather than one shared "
+                  "regime.", "",
+                  "**Consequence for the specialist→generalist premise:** any "
+                  "measured specialist-over-all-in-one advantage is *confounded* "
+                  "— part of it is specialisation, part is simply a different "
+                  "(often longer) training protocol on a different data mix. A "
+                  "student inheriting that surplus would be inheriting both, and "
+                  "the claim \"specialist knowledge transfers\" would be weaker "
+                  "than it appears. This does not kill the option, but it must "
+                  "be stated whenever the gap is quoted.", "",
                   "> Recorded as available. **Not** in scope for Phase 01 — no "
-                  "multi-teacher infrastructure is built in this task.", ""]
+                  "multi-teacher infrastructure is built in this task. The gap "
+                  "itself is measured under our locked conventions at G3.", ""]
         else:
             missing_tasks = {"denoise", "derain", "dehaze"} - tasks
             L += [f"**Incomplete** — no specialist found for: "

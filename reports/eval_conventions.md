@@ -140,6 +140,28 @@ Two hard failures, both verified in our `adair` env (scikit-image 0.24.0):
    luck, not safety: on other shapes it would return a **silently different
    number**.
 
+   > Note on what that raise does *not* prove: under `channel_axis=None` a CHW
+   > array `(3, H, W)` also has an axis below `win_size=7` and raises
+   > identically. The error is therefore consistent with **either** layout and
+   > does not discriminate between them. The layout is settled by the transpose
+   > below, not by the error.
+
+### Array layout at the metric call site — HWC (settled)
+
+`compute_psnr_ssim` transposes **NCHW → NHWC** at `val_utils.py:55-56`, two
+lines before the metric loop:
+
+```python
+recoverd = recoverd.transpose(0, 2, 3, 1)
+clean    = clean.transpose(0, 2, 3, 1)
+```
+
+Verified empirically on a BSD68-shaped batch: `(1,3,320,480) → (1,320,480,3)`,
+so the slice passed to `structural_similarity` is `(320, 480, 3)` — **HWC, last
+axis = channels**. Under scikit-image 0.19 `multichannel=True` therefore means
+per-channel 2-D SSIM averaged over 3 channels, which is exactly what
+`channel_axis=-1` does today. Our harness matches; no change required.
+
 AdaIR pins `scikit-image==0.19.3` and `scikit-video==1.1.11` (`env.yaml:221-222`),
 Python 3.8.11, PyTorch 1.13.1 (`INSTALL.md`). **G2 therefore requires a separate
 legacy environment**, not our project env. This keeps "run their code unmodified"
