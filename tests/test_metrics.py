@@ -60,10 +60,17 @@ def test_adair_default_conventions_are_the_traced_ones() -> None:
 def test_known_answer_on_fixed_noise_pattern() -> None:
     """Hardcoded expected values for a fixed seed under ADAIR_DEFAULT.
 
-    Values were *computed* from this implementation and frozen — they are a
+    Values were *computed* from this implementation and frozen, so this is a
     regression pin against silent convention drift (a scikit-image default
-    change, a reordering in ``prepare``), not an independent oracle. The
-    independent oracles are the analytic tests above.
+    change, a reordering in ``prepare``) rather than an independent oracle.
+
+    It is nonetheless **semi-validated against theory**: for additive Gaussian
+    noise of sigma=0.05 on ``data_range=1``, PSNR should be
+    ``20*log10(1/0.05) = 26.02 dB``. The measured 26.25 dB is slightly *higher*,
+    which is exactly what clipping to [0, 1] predicts — clipping discards noise
+    energy at the range boundaries. Agreement with theory to within the sign and
+    rough size of the clipping effect is meaningful evidence the pipeline is
+    doing what it claims.
     """
     rng = np.random.default_rng(1234)
     clean = rng.random((64, 64, 3))
