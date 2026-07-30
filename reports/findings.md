@@ -33,10 +33,29 @@ with measured latency was **GMACs r=0.66**, **block count r=0.75**,
 The only difference is *where* blocks sit in the pyramid, and therefore how many
 normalizations run at full resolution.
 
+**Direct confirmation by intervention (not just observation).** Removing
+normalization from only the two full-resolution stages of `w16_b8` — **4 of 34
+normalizations, 11.8% of them** — cuts latency 2.510 → 1.572 ms. Removing *all
+34* reaches 1.069 ms. So those 4 carry **65% of the entire removable
+normalization cost**, a 5.5× over-representation, exactly as per-element
+scaling predicts. This is a controlled intervention on one architecture, which
+makes it considerably stronger than the correlational evidence above.
+
+| variant | normalization | ms | vs N-A | norm % of cycles |
+|---|---|---|---|---|
+| N-A | `LayerNorm2d` everywhere | 2.510 | 1.00× | 62.3% |
+| N-F | affine at full resolution only | 1.572 | **1.60×** | 36.9% |
+| N-E | affine everywhere (floor) | 1.069 | **2.35×** | 1.5% |
+
 **Limits:** one architecture family, one device, one runtime. n=12 is small and
 the configs are heterogeneous; the correlation gap between MACs and the
-normalization proxy should not be over-read. The matched pair is the reliable
-part.
+normalization proxy should not be over-read. The matched pair and the N-F/N-E
+intervention are the reliable parts. The area-weighted proxy predicted 72% for
+the full-resolution share against 65% measured — good enough to rank
+architectures, not good enough to be a cost model.
+
+**These are latency results only.** N-F and N-E change the computed function and
+their quality cost is **unmeasured** until Task 1.5b.
 
 ---
 
