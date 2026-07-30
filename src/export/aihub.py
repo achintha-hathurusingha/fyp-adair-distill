@@ -178,14 +178,22 @@ def _extract_latency_ms(profile: dict[str, Any]) -> float | None:
 
 
 def _extract_peak_memory_mb(profile: dict[str, Any]) -> float | None:
-    """Peak inference memory in MB."""
+    """TOTAL peak inference memory in MB (weights + activations).
+
+    AI Hub reports two different things and conflating them understates cost by
+    an order of magnitude:
+      * ``estimated_inference_peak_memory`` — total peak footprint (what an edge
+        memory budget actually has to accommodate). Preferred.
+      * ``inference_memory_peak_range`` — *incremental* working-set range on top
+        of the loaded model. Used only as a fallback.
+    """
     summary = profile.get("execution_summary", {})
-    for key in ("inference_memory_peak_range", "estimated_inference_peak_memory"):
-        val = summary.get(key)
-        if isinstance(val, (list, tuple)) and val:
-            return max(val) / (1024 ** 2)
-        if isinstance(val, (int, float)):
-            return val / (1024 ** 2)
+    total = summary.get("estimated_inference_peak_memory")
+    if isinstance(total, (int, float)) and total > 0:
+        return total / (1024 ** 2)
+    val = summary.get("inference_memory_peak_range")
+    if isinstance(val, (list, tuple)) and val:
+        return max(val) / (1024 ** 2)
     return None
 
 
