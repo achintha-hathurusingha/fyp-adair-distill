@@ -130,7 +130,20 @@ the worse one. Pinned by a regression test so it cannot be "simplified" back.
 reciprocal-then-multiply (N-A′) is mathematically identical — `allclose`
 `atol=1e-5`, checkpoints interchangeable, so it needs no retraining. It removed
 every elementwise norm `Div`, and `Reciprocal` is fully supported (zero
-fallback). On its own terms the substitution was dramatic: **61.7% → 3.4%**.
+fallback).
+
+On its own terms the substitution was dramatic, but two different percentages
+are in play and they must not be confused — **both are shares of that variant's
+own total cycles**, and the totals themselves differ (17.8M vs 20.3M):
+
+| quantity | N-A | N-A′ |
+|---|---|---|
+| the single divide-family op (`Div` → `Reciprocal`) | **61.7%** of 17.8M | **3.4%** of 20.3M |
+| *all* normalization layers combined | **62.3%** of 17.8M | **67.6%** of 20.3M |
+
+So the op itself became ~18× cheaper as a share, while normalization *as a
+whole* got **more** expensive — because the work did not disappear, it moved out
+of the fused kernel and into its neighbours.
 
 **But total latency got 14% worse: 2.51 ms → 2.87 ms** (17.8M → 20.3M cycles,
 637 → 671 layers). Because the rewrite broke QNN's LayerNorm fusion match, the
@@ -158,6 +171,49 @@ cost fell 15.7×. **But on a fused backend the rule is false in practice**,
 because the saving is smaller than the fusion it forfeits. It may still hold on
 backends that do not fuse normalization, or for divisions outside a
 fusion-matched pattern. **Untested.**
+
+---
+
+## AI Hub job IDs (verifiable provenance)
+
+Every on-device number in this repository traces to a job below. Job pages are
+at `https://workbench.aihub.qualcomm.com/jobs/<id>/`. All on
+**Samsung Galaxy S24 (Family)**, INT8, `(1,3,256,256)`, measured 2026-07-30.
+
+### Architecture sweep (Task 1.5a)
+
+| model | quantize | compile | profile | ms |
+|---|---|---|---|---|
+| `w16_b8` | `jp06l9enp` | `jgd2o4kl5` | `j5w4qr66g` | 2.513 |
+| `w16_b14` | `jgk830dng` | `jp43v4zl5` | `jpv7vnkjp` | 2.742 |
+| `w32_b8` | `jgd2o46k5` | `jpxxyrv9p` | `jpv7vnwkp` | 3.160 |
+| `w24_b8` | `jp06l960p` | `jp16e1rl5` | `jgjqe8nx5` | 3.195 |
+| `w16_b28` | `j5w4qz8mg` | `jp2eld2mp` | `j56wn020g` | 3.299 |
+| `w24_b14` | `j56wnmwng` | `jgd2o4jl5` | `jgd2omee5` | 3.519 |
+| `w32_b14` | `j5qv3117g` | `j5m83krqp` | `j5w4qrmmg` | 3.590 |
+| `w24_b28` | `jgo83wr1p` | `j579xnzrg` | `jpeykn4v5` | 4.256 |
+| `w32_b28` | `j5qv31x7g` | `jgnk3q2mg` | `jp06lxj0p` | 4.469 |
+| `w16_sidd` | `jgnk3q7jg` | `jgjqeyj85` | `jp43v2d85` | 4.742 |
+| `w24_sidd` | `jgd2o4dk5` | `jp43v4ql5` | `jp16emd75` | 6.091 |
+| `w32_sidd` | `jgnk3q4mg` | `j579xqdvg` | `jp36eyq3p` | 6.158 |
+
+### Normalization sweep (Task 1.5c), all on the `w16_b8` skeleton
+
+| variant | quantize | compile | profile | ms |
+|---|---|---|---|---|
+| N-A (reference) | `jp06l9enp` | `jgd2o4kl5` | `j5w4qr66g` | 2.513 |
+| N-A′ (rejected) | `jgo83ylkp` | `jg9dwvvq5` | `jp43vonl5` | 2.869 |
+| N-F | `jp2el6l4p` | `jgll3z38g` | `jgnk3yerg` | 1.572 |
+| N-E (floor) | `j5m8323wp` | `jp06lql6p` | `jpeyk1k15` | 1.069 |
+
+> The N-A row is the same job as `w16_b8` above — the sweep's baseline *is* the
+> normalization reference, not a re-run.
+
+**Outstanding caveat:** all of the above used **placeholder uniform-noise
+calibration**. Latency is weight-independent, but quantization *ranges* derive
+from calibration and could in principle influence kernel selection. To be
+re-confirmed with real calibration images once datasets land (Task 2.3); no
+change expected.
 
 ---
 
