@@ -221,7 +221,41 @@ def build_report(audits: list[CheckpointAudit], ref_params: int) -> str:
                   "specialist→generalist route would need third-party models "
                   "for those tasks.", ""]
 
-    L += ["## Notes", "",
+    L += ["## All-in-one training composition (traced from source)", "",
+          "Read from `utils/dataset_utils.py` @ `ccb8b98`, to interpret the "
+          "specialist-gap confound. Two structural facts:", "",
+          "**1. There is no per-batch task balancing.** `sample_ids` is a flat "
+          "concatenation of the per-task streams (`dataset_utils.py:155-168`), "
+          "shuffled by the DataLoader. A task's share of training is therefore "
+          "exactly its list length — nothing rebalances it per batch or per "
+          "epoch.", "",
+          "**2. The per-task repeat multipliers are wildly asymmetric:**", "",
+          "| task | source list | repeat | line |",
+          "|---|---|---|---|",
+          "| denoise | `noisy/denoise.txt` (BSD400+WED subset) | **x3 per sigma**, three sigma streams | `:62,67,72` |",
+          "| derain | `rainy/rainTrain.txt` | **x120** | `:119` |",
+          "| dehaze | `hazy/hazy_outside.txt` | **x1** | `:83` |",
+          "| deblur | GoPro dir listing | x5 (5-degradation only) | `:96` |",
+          "| enhance | LOL dir listing | x20 (5-degradation only) | `:105` |",
+          "",
+          "Deraining is repeated **120x** while dehazing is used **once**. The "
+          "absolute counts depend on the `.txt` index files, which ship with "
+          "AdaIR's training data rather than the repository, so exact "
+          "proportions cannot be computed here — but the multipliers are "
+          "unambiguous and are the dominant term.", "",
+          "**Bearing on the specialist gap.** Dehazing showed by far the largest "
+          "specialist advantage (**+0.732 dB**, versus +0.24-0.31 for the other "
+          "tasks). It is also the *only* task with no repetition in the "
+          "all-in-one mix, while its specialist trained at 9,017 steps/epoch "
+          "against the all-in-one's 4,338. Both point the same way: a "
+          "meaningful share of that +0.732 dB is plausibly **exposure**, not "
+          "specialisation. Treat it as an upper bound.", "",
+          "**Bearing on our own sampler.** The Task 2 specification calls for a "
+          "mixed-task sampler balancing degradation types *within* each batch. "
+          "AdaIR does not do this. That is a deliberate deviation on our part "
+          "and must be recorded whenever our training mix is compared with "
+          "theirs.", "",
+          "## Notes", "",
           "- These are **full Lightning training checkpoints** (~346 MB ≈ 3× the "
           "28.78M parameters: weights plus two Adam moments), not inference-only "
           "exports. Weights live under `state_dict` with a uniform `net.` prefix "
