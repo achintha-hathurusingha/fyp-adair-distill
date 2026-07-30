@@ -8,10 +8,41 @@ Fixed input shape `(1, 3, 256, 256)` · ONNX Runtime static INT8 PTQ (QDQ) · CP
 
 | variant | params | FP32 MB | INT8 MB | FP32 ms (med) | INT8 ms (med) | quant peak RSS MB |
 |---|---|---|---|---|---|---|
-| nafnet_w32 | 29,159,715 | 111.45 | 30.39 | 898.7 | 1187.3 | 4059 |
-| nafnet_w32_gate | 29,160,267 | 111.46 | 30.39 | 969.0 | 1209.3 | 2843 |
+| nafnet_w32 | 29,159,715 | 111.45 | 30.39 | 2845.5 | 3092.2 | 3878 |
+| nafnet_w32_gate | 29,160,267 | 111.46 | 30.39 | 928.6 | 1354.6 | 3819 |
 
-## nafnet_w32
+## Findings
+
+### 1. The channel gate is export-safe (the primary G1 question)
+
+Adding the gate changes the INT8 graph by only: `Conv`(+2), `DequantizeLinear`(+9), `GlobalAveragePool`(+1), `Mul`(+1), `QuantizeLinear`(+5), `Sigmoid`(+1).
+
+**All gate ops are SUPPORTED on QNN, TFLite and TensorRT.**
+Parameter cost is negligible (552 params).
+
+### 2. `LayerNorm2d` is the real INT8 risk, not the gate
+
+NAFNet's channel LayerNorm has no native op and decomposes into `ReduceMean`x144, `Pow`x72, `Sqrt`x72, `Div`x72, `Sub`x72.
+These are flagged CAUTION on QNN and TFLite: `Pow`/`Sqrt`/`Div` on near-zero variance quantize poorly in INT8, and QNN may fall back to CPU for them, destroying the latency benefit.
+**Mitigation to evaluate in Task 5/Phase 02:** replace LayerNorm2d with a fixed-scale or BatchNorm-style normalisation that folds into the preceding conv, or fuse it into a single custom op per backend.
+
+### 3. `SimpleGate` emits `Slice` (QNN caution)
+
+The channel-chunk gating yields `Slice`x146, flagged CAUTION on QNN. Usually convertible, but confirm on-device in Task 5.
+
+### 4. CPU INT8 latency is NOT a proxy for on-device NPU latency
+
+INT8 measures *slower* than FP32 here. That is expected: ONNX Runtime's x86 CPU provider gains little from QDQ INT8 and pays de/quantize overhead (note the large `QuantizeLinear`/`DequantizeLinear` counts). These numbers prove the graph **quantizes and executes**; they say nothing about NPU speed. Real latency comes from the on-device benchmark in Task 5.
+
+> **Treat the latency column as order-of-magnitude only.** It was measured on a shared laptop CPU and varies by >2x between runs under load. The gate adds 552 parameters and one GAP/conv/sigmoid/multiply, so any large gate-vs-no-gate latency gap in the table is measurement noise, not a real cost. Do not quote these figures as results.
+
+### 5. Shape ops vanish after quantization preprocessing
+
+The FP32 graphs contain `Shape`/`Gather`/`Mod`/`ConstantOfShape` from the dynamic padding helper. Because the export shape is fixed, `quant_pre_process` constant-folds them away — they are absent from the INT8 graphs and are therefore not a deployment risk at fixed resolution.
+
+## Full op-coverage tables
+
+### nafnet_w32
 
 ### Op coverage — `nafnet_w32.onnx`
 
@@ -72,7 +103,7 @@ INT8 (post-QDQ) graph:
 - **tensorrt**: all ops supported
 
 
-## nafnet_w32_gate
+### nafnet_w32_gate
 
 ### Op coverage — `nafnet_w32_gate.onnx`
 

@@ -163,6 +163,11 @@ def _findings(results: list[dict]) -> list[str]:
         "(note the large `QuantizeLinear`/`DequantizeLinear` counts). These numbers "
         "prove the graph **quantizes and executes**; they say nothing about NPU "
         "speed. Real latency comes from the on-device benchmark in Task 5.", "",
+        "> **Treat the latency column as order-of-magnitude only.** It was measured "
+        "on a shared laptop CPU and varies by >2x between runs under load. The gate "
+        "adds 552 parameters and one GAP/conv/sigmoid/multiply, so any large "
+        "gate-vs-no-gate latency gap in the table is measurement noise, not a real "
+        "cost. Do not quote these figures as results.", "",
         "### 5. Shape ops vanish after quantization preprocessing", "",
         "The FP32 graphs contain `Shape`/`Gather`/`Mod`/`ConstantOfShape` from the "
         "dynamic padding helper. Because the export shape is fixed, "

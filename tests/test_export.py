@@ -37,3 +37,50 @@ def test_verdict_classification() -> None:
     assert verdict("Conv", "qnn") == "SUPPORTED"
     assert verdict("ReduceMean", "qnn") == "CAUTION"
     assert verdict("SomeExoticOp", "qnn") == "UNKNOWN"
+
+
+#: Every op the INT8 student graph is currently allowed to contain. Ops here are
+#: either SUPPORTED on all three backends, or a CAUTION we have consciously
+#: accepted and tracked (LayerNorm arithmetic, SimpleGate's Slice, PixelShuffle's
+#: DepthToSpace). Adding an op to the architecture that is NOT in this set should
+#: fail CI, not be discovered during on-device conversion months later.
+INT8_OP_ALLOWLIST = {
+    # core compute
+    "Conv", "Add", "Sub", "Mul", "Div", "Relu", "Sigmoid",
+    # quantization boundaries
+    "QuantizeLinear", "DequantizeLinear",
+    # pooling / attention-free channel gating
+    "GlobalAveragePool", "AveragePool",
+    # accepted-risk ops, tracked in reports/export_smoke_test.md
+    "ReduceMean", "Pow", "Sqrt",   # LayerNorm2d decomposition
+    "Slice", "Concat",             # SimpleGate channel chunk
+    "DepthToSpace",                # PixelShuffle upsampling
+    # shape/no-op plumbing that survives folding
+    "Pad", "Reshape", "Transpose", "Identity", "Constant",
+}
+
+
+def test_int8_graph_contains_no_op_outside_allowlist(tmp_path) -> None:
+    """Regression guard: the whole INT8 graph must stay within the allowlist.
+
+    This is the standing version of the Gate G1 op-coverage table. It converts a
+    one-time report into a guard, so an architecture change that introduces an
+    export-hostile op (GELU, Softmax, LayerNormalization, Resize, Einsum, ...)
+    breaks the build immediately.
+    """
+    from src.export.quantize import quantize_static_int8
+
+    model = NAFNet(width=8, enc_blk_nums=[1, 1], middle_blk_num=1,
+                   dec_blk_nums=[1, 1], use_gate=True)
+    shape = (1, 3, 64, 64)
+    fp32 = export_onnx(model, tmp_path / "guard.onnx", shape)
+    int8 = quantize_static_int8(fp32, tmp_path / "guard_int8.onnx", shape,
+                               calib_samples=2)
+
+    ops = set(op_histogram(int8))
+    unexpected = ops - INT8_OP_ALLOWLIST
+    assert not unexpected, (
+        f"INT8 graph gained op(s) outside the allowlist: {sorted(unexpected)}. "
+        "Either the op is deployable (add it to INT8_OP_ALLOWLIST with a note) "
+        "or the architecture change must be reverted."
+    )

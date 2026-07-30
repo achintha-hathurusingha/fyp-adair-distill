@@ -1,0 +1,63 @@
+# Task 1.5a — student architecture sweep.
+#
+# Selection criterion is MACs + on-device latency, NOT parameter count: at fixed
+# resolution a NAFBlock at H/8 costs ~1/64 the MACs of the same block at full
+# resolution, so params alone cannot rank architectures by cost.
+
+# Resolution at which params/MACs are measured and models are exported.
+input_shape: [1, 3, 256, 256]
+
+# Grid: every width x block-config combination is measured.
+widths: [16, 24, 32]
+
+block_configs:
+  - name: b8
+    enc_blk_nums: [1, 1, 1, 8]
+    middle_blk_num: 2
+    dec_blk_nums: [1, 1, 1, 1]
+  - name: b14
+    enc_blk_nums: [1, 1, 1, 14]
+    middle_blk_num: 2
+    dec_blk_nums: [1, 1, 1, 1]
+  - name: b28
+    enc_blk_nums: [1, 1, 1, 28]
+    middle_blk_num: 1
+    dec_blk_nums: [1, 1, 1, 1]
+  - name: sidd
+    enc_blk_nums: [2, 2, 4, 8]
+    middle_blk_num: 12
+    dec_blk_nums: [2, 2, 2, 2]
+
+# Teacher reference. MACs/params are MEASURED from the cloned architecture
+# (third_party/AdaIR) rather than hardcoded, so the reduction ratios stay honest.
+teacher:
+  repo_path: third_party/AdaIR
+  module: net.model
+  cls: AdaIR
+  # Published AdaIR 3-degradation defaults (dim 48, [4,6,6,8], 4 refinement).
+  kwargs: {}
+
+# Student family targets, as MAC-reduction factors vs the measured teacher.
+family_targets:
+  S: 30.0
+  M: 10.0
+  L: 4.0
+
+# An arm only counts as compression if BOTH ratios clear this factor.
+min_compression_factor: 4.0
+
+# Qualcomm AI Hub on-device profiling. Requires an API token:
+#   pip install qai-hub && qai-hub configure --api_token <TOKEN>
+# Token obtained from https://aihub.qualcomm.com (Qualcomm account required).
+aihub:
+  enabled: true
+  # Device name as AI Hub reports it; listed via `python -m src.export.aihub --list-devices`.
+  # S24 = Snapdragon 8 Gen 3, Hexagon v75, supports the QNN framework.
+  device: "Samsung Galaxy S24 (Family)"
+  # QNN context binary targets the Hexagon NPU directly (the deployment target).
+  compile_options: "--target_runtime qnn_context_binary"
+  profile_options: ""
+  # Calibration batches for the AI Hub INT8 quantize job. PLACEHOLDER data
+  # (uniform noise) until Task 2 provides real images: sufficient for latency
+  # and op-support conclusions, meaningless for INT8 accuracy.
+  calib_samples: 8

@@ -30,3 +30,7 @@ dist/
 .DS_Store
 .vscode/
 .idea/
+
+# third_party clones (cloned fresh, not vendored)
+/third_party/**
+!/third_party/.gitkeep

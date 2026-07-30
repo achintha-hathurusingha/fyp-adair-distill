@@ -13,6 +13,13 @@ torchvision==0.20.1
 onnx==1.17.0
 onnxruntime==1.20.1
 
+# teacher (AdaIR) architecture dependency
+einops==0.8.2
+
+# on-device compilation + INT8 profiling (Qualcomm AI Hub)
+# needs a token: qai-hub configure --api_token <TOKEN>
+qai-hub==0.53.0
+
 # data / metrics
 numpy>=1.26,<3
 opencv-python==4.10.0.84
