@@ -1,0 +1,74 @@
+[submit] skip w16_b8_NF (already submitted)
+[submit] skip w16_b8_NE (already submitted)
+[submit] skip w16_b14_NF (already submitted)
+[submit] skip w16_b14_NE (already submitted)
+[submit] skip w16_b28_NF (already submitted)
+[submit] skip w16_b28_NE (already submitted)
+[submit] skip w16_sidd_NF (already submitted)
+[submit] skip w16_sidd_NE (already submitted)
+[submit] skip w24_b8_NF (already submitted)
+[submit] skip w24_b8_NE (already submitted)
+[submit] skip w24_b14_NF (already submitted)
+Scheduled quantize job (jp168yql5) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jp168yql5/
+
+[submit] w24_b14_NE           quantize=jp168yql5
+[submit] w24_b28_NF attempt 1 failed (Connection was closed before we received a valid response from endpoint URL: "https://tetr); backing off 15s
+[submit] w24_b28_NF attempt 2 failed (Internal API failure.
+
+┌──────────────────────────────────────────────────────────────────); backing off 30s
+[submit] w24_b28_NF attempt 3 failed (Internal API failure.
+
+┌──────────────────────────────────────────────────────────────────); backing off 60s
+[submit] w24_b28_NF attempt 4 failed (Internal API failure.
+
+┌──────────────────────────────────────────────────────────────────); backing off 120s
+Scheduled quantize job (jgnkel2jg) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jgnkel2jg/
+
+[submit] w24_b28_NF           quantize=jgnkel2jg
+Scheduled quantize job (jp43wko25) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jp43wko25/
+
+[submit] w24_b28_NE           quantize=jp43wko25
+Scheduled quantize job (jgk8y7mvg) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jgk8y7mvg/
+
+[submit] w24_sidd_NF          quantize=jgk8y7mvg
+Scheduled quantize job (jgnkel8jg) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jgnkel8jg/
+
+[submit] w24_sidd_NE          quantize=jgnkel8jg
+Scheduled quantize job (jp817mqq5) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jp817mqq5/
+
+[submit] w32_b8_NF            quantize=jp817mqq5
+Scheduled quantize job (j5qv2r6eg) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/j5qv2r6eg/
+
+[submit] w32_b8_NE            quantize=j5qv2r6eg
+Scheduled quantize job (j56w1zyng) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/j56w1zyng/
+
+[submit] w32_b14_NF           quantize=j56w1zyng
+Scheduled quantize job (jpeyvwd85) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jpeyvwd85/
+
+[submit] w32_b14_NE           quantize=jpeyvwd85
+Scheduled quantize job (jp168w4k5) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jp168w4k5/
+
+[submit] w32_b28_NF           quantize=jp168w4k5
+Scheduled quantize job (jp06r242p) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jp06r242p/
+
+[submit] w32_b28_NE           quantize=jp06r242p
+Scheduled quantize job (jg9d4y0q5) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jg9d4y0q5/
+
+[submit] w32_sidd_NF          quantize=jg9d4y0q5
+Scheduled quantize job (jp2em90xp) successfully. To see the status and results:
+    https://workbench.aihub.qualcomm.com/jobs/jp2em90xp/
+
+[submit] w32_sidd_NE          quantize=jp2em90xp
+SUBMIT PHASE DONE
