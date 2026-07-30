@@ -275,11 +275,28 @@ at `https://workbench.aihub.qualcomm.com/jobs/<id>/`. All on
 > The N-A row is the same job as `w16_b8` above — the sweep's baseline *is* the
 > normalization reference, not a re-run.
 
-**Outstanding caveat:** all of the above used **placeholder uniform-noise
-calibration**. Latency is weight-independent, but quantization *ranges* derive
-from calibration and could in principle influence kernel selection. To be
-re-confirmed with real calibration images once datasets land (Task 2.3); no
-change expected.
+**Calibration caveat — CLOSED (2026-07-31).** The measurements above used
+placeholder uniform-noise calibration. Latency is weight-independent, but
+quantization *ranges* derive from calibration and could in principle influence
+kernel selection, so this needed confirming rather than assuming.
+
+Re-profiled `w16_b8` N-A with **real calibration data** — 8 genuine degraded
+inputs spanning all three tasks (noisy BSD68, rainy Rain100L, hazy SOTS),
+centre-cropped to the export resolution:
+
+| calibration | INT8 latency | layers | fallback |
+|---|---|---|---|
+| placeholder (uniform noise) | 2.510 ms | 637 | 0 |
+| **real degraded images** | **2.507 ms** | 637 | 0 |
+
+**Difference 0.003 ms (0.1%)** — within run-to-run variation, with an identical
+layer count and compute-unit split. Calibration content does not affect latency
+or kernel selection on this backend. Jobs: quantize `jgk8yvr2g`, compile
+`jp81728x5`, profile `jg9d40dl5`.
+
+Every latency number in this repository therefore stands as measured. Note this
+says nothing about INT8 *accuracy*, which does depend on calibration and is not
+measured anywhere yet.
 
 ---
 
