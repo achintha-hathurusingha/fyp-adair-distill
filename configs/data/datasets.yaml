@@ -1,0 +1,88 @@
+# Dataset manifest for the AirNet/PromptIR/AdaIR 3-degradation protocol.
+#
+# Links are transcribed from AdaIR's own INSTALL.md (commit ccb8b98) — the
+# primary source. Cloud-storage links rot; `verified` records the date each was
+# last confirmed to work, so a stale link is diagnosed immediately rather than
+# in month three.
+#
+# Directory layout mirrors AdaIR's expected structure exactly (INSTALL.md), so
+# their test.py can run against the same tree during G2.
+
+# Test sets are all that G2/G3 require. Train sets are Task 5 (B0) only.
+test:
+  bsd68:
+    task: denoise
+    path: test/denoise/bsd68
+    expect_files: 68
+    layout: flat              # clean images only; noise is synthesised
+    source: https://github.com/clausmichele/CBSD68-dataset/tree/master/CBSD68/original
+    method: git
+    verified: null
+    notes: >
+      CBSD68 (colour BSD68). AdaIR's test.py evaluates ONLY this split for
+      denoising; Urban100 and Kodak24 are downloaded but not used in the
+      3-degradation protocol (see reports/eval_conventions.md R1).
+
+  rain100l:
+    task: derain
+    path: test/derain/Rain100L
+    expect_files: 100
+    layout: input_target      # input/ and target/ subdirectories
+    source: https://drive.google.com/drive/folders/1-_Tw-LHJF4vh8fpogKgZx1EQ9MhsJI_f
+    method: gdown_folder
+    verified: null
+    notes: Same Drive folder contains Train100L (200 pairs) for Task 5.
+
+  sots_outdoor:
+    task: dehaze
+    path: test/dehaze
+    expect_files: 500
+    layout: input_target
+    source: https://sites.google.com/view/reside-dehaze-datasets/reside-v0
+    method: manual            # Google Sites; no direct programmatic link
+    verified: null
+    notes: >
+      SOTS-outdoor. Inputs are .jpg named NNNN_a_b.jpg; targets are .png named
+      NNNN.png — AdaIR pairs them by splitting the input name on '_'
+      (dataset_utils.py:329-331).
+
+# Training sets — needed for Task 5 (B0), NOT for G2/G3. ~35 GB total.
+train:
+  bsd400:
+    task: denoise
+    path: Train/Denoise
+    expect_files: 400
+    source: https://drive.google.com/file/d/1idKFDkAHJGAFDn1OyXZxsTbOSBx9GS8N/view
+    method: gdown_file
+    verified: null
+
+  wed:
+    task: denoise
+    path: Train/Denoise
+    expect_files: 4744
+    source: https://drive.google.com/file/d/1e62XGdi5c6IbvkZ70LFq0KLRhFvih7US/view
+    method: gdown_file
+    verified: null
+    notes: Waterloo Exploration Database. Shares the Denoise dir with BSD400.
+
+  train100l:
+    task: derain
+    path: Train/Derain
+    expect_files: 200
+    layout: input_target
+    source: https://drive.google.com/drive/folders/1-_Tw-LHJF4vh8fpogKgZx1EQ9MhsJI_f
+    method: gdown_folder
+    verified: null
+
+  reside_ots:
+    task: dehaze
+    path: Train/Dehaze
+    expect_files: null        # OTS is ~300k synthetic images; count varies by release
+    layout: original_synthetic
+    source: https://sites.google.com/view/reside-dehaze-datasets/reside-%CE%B2
+    method: manual
+    verified: null
+    notes: >
+      RESIDE-beta OTS. Largest single item (~30 GB) and the main disk cost.
+      Count is deliberately null — the released archive size differs between
+      mirrors, so verify_datasets checks structure rather than an exact count.

@@ -34,3 +34,6 @@ dist/
 # third_party clones (cloned fresh, not vendored)
 /third_party/**
 !/third_party/.gitkeep
+
+# downloaded archives (regenerable)
+/data/_dl_*/
