@@ -174,6 +174,63 @@ fusion-matched pattern. **Untested.**
 
 ---
 
+## F7. The AdaIR teacher cannot be exported at all — the deployment gap is categorical, not quantitative
+
+Attempting to export the released AdaIR to ONNX (opset 17, fixed 256x256 input,
+no quantization) **fails outright**:
+
+```
+SymbolicValueError: Rank must be 0 or 1, not 2
+  in net.model.FreModule::fre1, model.py:349
+```
+
+The failure is in `FreModule` — AdaIR's frequency mining and modulation block,
+i.e. its central contribution. Two independent reasons it cannot be traced:
+
+**1. Data-dependent dynamic slicing** (`model.py:345-349`). The frequency mask is
+built by slicing at bounds computed from a *learned* threshold:
+
+```python
+threshold = self.rate_conv(F.adaptive_avg_pool2d(x, 1)).sigmoid()
+h_ = (h//n * threshold[i,0,:,:]).int()
+mask[i, :, h//2-h_:h//2+h_, w//2-w_:w//2+w_] = 1
+```
+
+Slice bounds depend on tensor **values**, not shapes, so the graph is not static
+and cannot be traced to a fixed ONNX graph. This is what raises.
+
+**2. Complex-valued FFT** (`model.py:351-361`). `torch.fft.fft2` / `ifft2` on
+complex tensors, which the standard opsets do not cover.
+
+### Why this matters more than a missing benchmark
+
+The intent was opportunistic — measure the teacher's on-device latency so
+compression ratios have an honest denominator rather than a MAC count that
+under-estimates the FFT work. That number is unobtainable, and its absence is
+the more interesting result:
+
+**The teacher is not slow on the target hardware. It cannot run on it at all.**
+
+That converts the project's premise from quantitative to categorical. The
+comparison is not "29M params at some latency versus 7M at a lower one" — it is
+**deployable versus not deployable**. Gate G1 established that the student
+exports, quantizes to INT8, compiles to a QNN context binary and runs with
+**zero CPU fallback**; the teacher does not clear the first of those steps.
+
+**Consequence for how results are framed.** Speedup factors against AdaIR are
+necessarily *estimates from MACs*, and should be labelled as such — there is no
+measured teacher latency to divide by, and there cannot be without rewriting
+`FreModule` to remove the data-dependent slicing. That rewrite would change the
+model, so the resulting number would not describe the published AdaIR.
+
+**Limit.** Tested with `torch.onnx.export` at opset 17 (TorchScript tracer). A
+different route — `dynamo` export, a custom symbolic for the FFT, or a
+static-mask approximation — might succeed, and none was attempted. The claim is
+that the *released model as written* does not export by the standard path, not
+that no export is possible in principle.
+
+---
+
 ## F6. Removing normalization from NAFNet fails by activation-scale growth, not by gradient-spike instability
 
 Training `w16_b8` with **affine-only normalization everywhere** (no statistics
