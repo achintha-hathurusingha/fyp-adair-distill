@@ -220,4 +220,22 @@ Trend check, not convergence.
 Teacher caching paused at **450/15632 (0.12 GB)** to free the GPU; it is
 manifest-resumable and will continue afterwards.
 
-=== 18:40 UTC M-A finished exit=0 ===
+
+### M spot-check restarted at batch 16 (00:20 local)
+
+M-A hit `CUDA error: out of memory` at batch 32 / patch 128. `w16_sidd` has 36
+blocks against `w16_b8`'s 17 — roughly double the activation memory — and 6 GB
+could not hold it (measured: batch 16 peaks at 2.11 GB, so batch 32 needs ~4.2 GB
+plus fragmentation, with the caching process still releasing memory at the time).
+
+**Both arms restarted at batch 16.** The spot-check is a *relative* comparison of
+N-A vs N-F on the same config, so identical settings across the two arms is what
+matters; it does not need to match the batch size used for the S ablation, and
+its numbers are not directly comparable to the S numbers.
+
+
+(Stale M-A/M-F completion markers from the OOM'd batch-32 attempt removed;
+they would otherwise read as results for the batch-16 rerun.)
+=== 18:52 UTC M-A finished exit=0 ===
+=== 19:10 UTC M-F finished exit=0 ===
+M_SPOTCHECK_DONE

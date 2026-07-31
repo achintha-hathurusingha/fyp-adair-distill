@@ -1,21 +1,45 @@
-# B0 baseline (Task 5): NAFNet-w32 trained on GT with Charbonnier loss only.
-# NO teacher involvement. This is the reference point for the whole project.
-# Scaffolded now; trainer implemented in Task 5.
+# B0 baseline — the reference every distillation delta is measured against.
+#
+# NAFNet on the LOCKED architecture, trained on ground truth only with a
+# reconstruction loss. **No teacher involvement of any kind.** If this file ever
+# grows a distillation term, B0 stops being a baseline.
+#
+# Architecture is fixed by Task 1.5b (see configs/model/nafnet_locked.yaml,
+# reports/norm_quality.md, reports/family_reselection.md):
+#   norm    N-F  — LayerNorm2d deeper, affine at full resolution
+#   M arm   w16_sidd, 7.37M params, 4.13 GMACs, 2.873 ms INT8 on S24
+#
+# STATUS: staged, smoke-tested, NOT LAUNCHED. A 3-seed run is a multi-day
+# commitment and waits on review of the architecture lock.
+
 experiment: b0_baseline
-model: configs/model/nafnet_w32.yaml
+model: configs/model/nafnet_locked.yaml
+
+# --- architecture (mirrors nafnet_locked.yaml M arm; kept explicit so the run
+# --- directory records exactly what was trained) ---
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine
 
 data:
-  patch_size: 256
-  batch_size: 16
-  mixed_task: true          # balance denoise/derain/dehaze per batch
-  num_workers: 8
+  # AdaIR's own training patch size (options.py:15). 256 exceeds 6 GB at these
+  # batch sizes on the development GPU; see reports/overnight_log.md.
+  patch_size: 128
+  batch_size: 16          # w16_sidd peaks at 2.11 GB here; 32 OOMs on 6 GB
+  sigmas: [15, 25, 50]
+  mixed_task: true        # balance degradation types WITHIN each batch
+  num_workers: 6
 
 optim:
   name: adamw
   lr: 1.0e-3
   weight_decay: 1.0e-4
   betas: [0.9, 0.9]
-  grad_clip: 1.0
+  grad_clip: null         # unused at these gradient magnitudes (~0.1); see F6
 
 schedule:
   name: cosine
@@ -25,11 +49,17 @@ schedule:
 
 train:
   ema_decay: 0.999
-  amp: true
+  amp: true               # bfloat16
   val_every: 5000
   ckpt_every: 5000
-  seeds: [0, 1, 2]
+  seeds: [0, 1, 2]        # three seeds; mean +/- std is the reported figure
 
 loss:
-  name: charbonnier          # reconstruction only in Phase 01
+  name: charbonnier       # reconstruction ONLY — Phase 01 admits nothing else
   eps: 1.0e-3
+
+eval:
+  # Metrics go through the locked harness. Conventions are G3-validated and
+  # must not be changed (src/eval/metrics.py :: ADAIR_DEFAULT).
+  harness: src/eval/evaluate.py
+  test_sets: [bsd68]

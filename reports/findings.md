@@ -174,6 +174,63 @@ fusion-matched pattern. **Untested.**
 
 ---
 
+## F8. Batch-size policy: gradient accumulation to a fixed effective batch of 32
+
+**Decision: effective batch 32 everywhere, reached by gradient accumulation when
+the micro-batch does not fit.** Recorded here rather than only in the config
+because it governs the comparability of every number in the project.
+
+### The problem
+
+The S-arm norm ablation (Q-A / Q-F / the Q-E ladder) ran at **batch 32, patch
+128** on `w16_b8` — 2.13 GB peak, comfortable on a 6 GB card. The M arm
+`w16_sidd` has **36 blocks against `w16_b8`'s 17**, roughly double the activation
+memory, and **OOMs at batch 32**. Measured on the same GPU:
+
+| config | blocks | batch 16 peak | batch 32 |
+|---|---|---|---|
+| `w16_b8` (S) | 17 | 1.08 GB | 2.13 GB — fits |
+| `w16_sidd` (M) | 36 | 2.11 GB | **OOM** |
+
+So the family cannot share a single native batch size.
+
+### Why accumulation rather than dropping to batch 16 project-wide
+
+Dropping to 16 would be simpler, but it would **retroactively change the
+configuration under which Q-A (31.019 dB) and Q-F (31.014 dB) were measured**.
+Those numbers are the entire basis of the normalization lock. Batch size affects
+gradient noise and therefore training dynamics, so a batch-16 rerun is not
+guaranteed to reproduce a 0.005 dB gap — and re-running the whole ablation to
+find out costs ~9 GPU-hours to defend a decision already made on sound evidence.
+
+Gradient accumulation keeps the effective batch at 32 for every arm, so:
+
+* the existing S-arm numbers stay valid as measured, not merely re-labelled;
+* S, M and L are trained under the same effective batch, so family comparisons
+  are like-for-like;
+* the only cost is wall-clock on arms that need accumulation (2 micro-steps of
+  16 instead of 1 step of 32 — same samples, marginally more overhead).
+
+### Exactness caveat, stated rather than glossed
+
+Accumulation is **not bit-identical** to a true large batch. Batch-norm-style
+statistics would differ, and gradient accumulation sums micro-batch gradients
+whereas a single large batch averages over one forward pass. This architecture
+uses no batch statistics (LayerNorm and affine only, both per-sample), so the
+gradient is mathematically equivalent up to floating-point summation order. The
+equivalence is therefore **exact in expectation and near-exact numerically**,
+which is sufficient here — but it is an approximation, not an identity.
+
+### The M spot-check is the exception
+
+The `w16_sidd` N-A vs N-F spot-check ran at **native batch 16 on both arms**,
+without accumulation. That is deliberate: it is a *relative* comparison between
+two norms on one config, so what matters is that both arms share settings. Its
+absolute PSNR is **not comparable to the S-arm numbers** and is not used as
+such.
+
+---
+
 ## F7. The AdaIR teacher cannot be exported at all — the deployment gap is categorical, not quantitative
 
 Attempting to export the released AdaIR to ONNX (opset 17, fixed 256x256 input,
@@ -223,11 +280,45 @@ measured teacher latency to divide by, and there cannot be without rewriting
 `FreModule` to remove the data-dependent slicing. That rewrite would change the
 model, so the resulting number would not describe the published AdaIR.
 
-**Limit.** Tested with `torch.onnx.export` at opset 17 (TorchScript tracer). A
-different route — `dynamo` export, a custom symbolic for the FFT, or a
-static-mask approximation — might succeed, and none was attempted. The claim is
-that the *released model as written* does not export by the standard path, not
-that no export is possible in principle.
+### Due-diligence: both causes confirmed independently, exporter ruled out
+
+The two causes above were initially *inferred from source* — only H1 was proven,
+since the export died there before ever reaching the FFT. A follow-up probe
+(`scripts/probe_adair_export.py`) separated them and also tested a second
+exporter. All five attempts, verbatim:
+
+| # | model | exporter | opset | result |
+|---|---|---|---|---|
+| A0 | unpatched | TorchScript | 17 | `SymbolicValueError: Rank must be 0 or 1, not 2` at `model.py:349` |
+| A17 | slicing patched to a fixed mask | TorchScript | 17 | `UnsupportedOperatorError: aten::fft_fft2 ... not supported` |
+| A20 | slicing patched to a fixed mask | TorchScript | 20 | `UnsupportedOperatorError: aten::fft_fft2 ... not supported` |
+| B18 | unpatched | **dynamo** | 18 | `TorchExportError: Failed to export the model with torch.export` |
+| B20 | unpatched | **dynamo** | 20 | `TorchExportError: Failed to export the model with torch.export` |
+
+Environment: `torch 2.5.1+cu121`, `onnxscript 0.7.1`, CPU tracing, fixed
+`(1,3,256,256)` input.
+
+**Both hypotheses are now confirmed, not inferred.** Replacing the
+value-dependent mask with a shape-derived one lets tracing proceed past H1, and
+export then fails on `aten::fft_fft2` — at opset 17 *and* opset 20. So the FFT is
+an independent blocker, not merely a suspected second one. And the dynamo
+exporter fails on the unpatched model too, so this is not an artifact of the
+TorchScript tracer.
+
+> A methodological note worth keeping: the first run of this probe was
+> **inconclusive in both arms** and looked like evidence. The patched-model arm
+> failed on an assertion inside AdaIR (`model.py:190`) because the replacement
+> dropped a `conv1` call that changes the channel count — my bug, not the
+> model's — and the dynamo arm failed on a missing `onnxscript` dependency.
+> Neither said anything about exportability. A probe that fails for the wrong
+> reason reads exactly like a probe that fails for the right one.
+
+**Remaining limit.** Two exporters and three opsets were tried. A custom symbolic
+for the FFT, or an ONNX Runtime contrib/custom operator, could in principle
+carry `fft_fft2` — but both require modifying or extending the model, so the
+resulting artifact would no longer be the published AdaIR. The claim is that
+**the released model as written does not export by any standard path available in
+current PyTorch**, which is what matters for a deployment argument.
 
 ---
 
