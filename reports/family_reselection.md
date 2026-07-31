@@ -1,5 +1,25 @@
 # Family re-selection on locked normalization (NF)
 
+## Peak memory — does not discriminate, but sets a floor
+
+Total peak inference footprint (weights + activations + runtime), measured on
+the S24 for the final family under both normalizations:
+
+| arm | config | N-A peak | N-F peak |
+|---|---|---|---|
+| S | `w16_b8` | 98 MB | 98 MB |
+| M | `w16_sidd` | 99 MB | 98 MB |
+| L | `w24_b28` | 98 MB | 100 MB |
+
+Flat at **98–100 MB across a 4.3x range of MACs and a 4x range of parameters**,
+and unchanged by the normalization scheme. The footprint is dominated by fixed
+QNN runtime overhead rather than by the model, so it **cannot be used to choose
+between candidates** — but it is the floor any edge memory budget must clear,
+and it does not bind before latency does at these model sizes.
+
+This was flagged as a possible binding constraint. Measured, it is not one.
+
+
 Selected through the corrected **profile-then-select** path: measured latency is attached to every candidate *before* `assign_family` runs. The earlier bug ran selection first, so it never saw the latency it selects on.
 
 ## Pre-fix (N-A) vs post-fix latency
