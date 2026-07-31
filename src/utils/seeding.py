@@ -52,9 +52,17 @@ def capture_rng_state() -> RNGState:
 
 
 def restore_rng_state(state: RNGState) -> None:
-    """Restore RNG state captured by :func:`capture_rng_state`."""
+    """Restore RNG state captured by :func:`capture_rng_state`.
+
+    The torch states are forced back to CPU ``ByteTensor``: a checkpoint loaded
+    with ``map_location="cuda"`` moves them to the GPU, and
+    ``torch.set_rng_state`` then rejects them with
+    ``TypeError: RNG state must be a torch.ByteTensor``. This silently broke
+    ``--resume`` until an arm tried to use it.
+    """
     random.setstate(state.python)
     np.random.set_state(state.numpy)
-    torch.set_rng_state(state.torch)
+    torch.set_rng_state(state.torch.cpu().to(torch.uint8))
     if state.torch_cuda is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(state.torch_cuda)
+        torch.cuda.set_rng_state_all(
+            [s.cpu().to(torch.uint8) for s in state.torch_cuda])
