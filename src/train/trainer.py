@@ -221,6 +221,12 @@ class Trainer:
         it = self.state.iteration
         t0 = time.time()
         loss_accum, n_accum = 0.0, 0
+        # Running max gradient norm since the last validation. Sampling gnorm
+        # only at validation points cannot distinguish a single spike from
+        # gradual drift — the exact question the Task 1.5b divergences turned
+        # on. Tracking the max between logs removes that blind spot.
+        max_gnorm = 0.0
+        clip_hits = 0
 
         while it < self.total_iters:
             for degraded, clean, _sigma in self.loader:
@@ -240,7 +246,10 @@ class Trainer:
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 gn = grad_norm(self.model)
+                max_gnorm = max(max_gnorm, gn)
                 if self.grad_clip:
+                    if gn > self.grad_clip:
+                        clip_hits += 1
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(),
                                                    self.grad_clip)
                 self.optimizer.step()
@@ -252,9 +261,13 @@ class Trainer:
                 self.state.iteration = it
 
                 if not torch.isfinite(loss):
-                    self.log.error(f"non-finite loss at iteration {it} — diverged")
+                    self.log.error(
+                        f"non-finite loss at iteration {it} — diverged "
+                        f"(max grad norm since last log {max_gnorm:.4f}, "
+                        f"clip hits {clip_hits})")
                     self.state.history.append(
-                        {"iteration": it, "diverged": True, "loss": float("nan")})
+                        {"iteration": it, "diverged": True, "loss": float("nan"),
+                         "max_grad_norm": max_gnorm, "clip_hits": clip_hits})
                     self._dump_history()
                     return self.state
 
@@ -268,6 +281,8 @@ class Trainer:
                         "lr": lr,
                         "loss": loss_accum / max(1, n_accum),
                         "grad_norm": gn,
+                        "max_grad_norm": max_gnorm,
+                        "clip_hits": clip_hits,
                         "peak_vram_gb": peak,
                         "elapsed_s": time.time() - t0,
                         **metrics,
@@ -277,8 +292,9 @@ class Trainer:
                     self.log.info(
                         f"it {it:6d}  loss {row['loss']:.5f}  psnr {metrics['psnr']:.3f}  "
                         f"ssim {metrics['ssim']:.4f}  gnorm {gn:.3f}  "
-                        f"vram {peak:.2f}GB")
+                        f"maxgn {max_gnorm:.3f}  vram {peak:.2f}GB")
                     loss_accum, n_accum = 0.0, 0
+                    max_gnorm, clip_hits = 0.0, 0
                     self._dump_history()
 
                     if metrics["psnr"] > self.state.best_psnr:

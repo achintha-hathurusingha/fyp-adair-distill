@@ -193,3 +193,8 @@ to ~0.02 without any instability.
 
 Q-F started 19:36 local. Q-E queued behind it.
 
+=== 16:27 UTC Q-F finished exit=0 ===
+=== 16:42 UTC Q-E finished exit=0 ===
+ARMS_ALL_DONE
+=== 17:22 UTC Q-E1 finished exit=0 ===
+=== 17:42 UTC Q-E2 finished exit=0 ===
