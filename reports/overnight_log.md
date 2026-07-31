@@ -137,3 +137,34 @@ latency span **2.45x -> 2.60x**, and **M moves from `w24_b8` to `w16_sidd`**.
 `w16_sidd` carries the most full-resolution normalisation of any config and so
 gained the most from removing it (2.58x). Invariants pass.
 
+
+## Throughput anomaly — machine sleep, not a training problem (18:20 local)
+
+Q-A reached it 16000/30000. Apparent average throughput looked ~4x worse than
+the measured rate, but the validation timestamps show the cause:
+
+| interval | wall clock |
+|---|---|
+| it 4000 -> 6000 | **3 h 22 min** |
+| it 6000 -> 8000 | **5 h 06 min** |
+| it 12000 -> 14000 | 10 min |
+| it 14000 -> 16000 | 11.5 min |
+
+Two long stalls, with normal ~10.5 min/2k either side. This is the host
+suspending while idle, not a slowdown in training. GPU is at **85 C** and
+1995 MHz — near laptop throttling limits, worth noting but not the cause.
+
+**Training itself is healthy and plateauing:**
+
+| iteration | loss | BSD68 PSNR | SSIM | grad norm |
+|---|---|---|---|---|
+| 12000 | 0.02090 | 30.87 | 0.869 | — |
+| 14000 | 0.02076 | 30.908 | 0.8703 | 0.055 |
+| 16000 | 0.02055 | 30.940 | 0.8711 | 0.157 |
+
++0.03 dB per 2k iterations and falling, so the arm is close to its plateau. If
+time forces an early stop, arms will be compared at a **common iteration count**
+(checkpoints and history are written every 2k), which keeps the comparison
+controlled — the ablation is a relative measurement, and all arms share data,
+seed, schedule and budget.
+
