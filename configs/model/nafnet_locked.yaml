@@ -1,0 +1,46 @@
+# LOCKED student architecture — Task 1.5b decision, 2026-07-31.
+#
+# NORMALIZATION: N-F — LayerNorm2d everywhere EXCEPT the full-resolution stages
+# (encoder level 0 and its decoder counterpart), which use affine-only.
+#
+# Evidence (reports/norm_quality.md, findings.md F1/F6):
+#   Q-A  LayerNorm2d everywhere   31.019 dB   2.513 ms   1.00x
+#   Q-F  affine at full-res only  31.014 dB   1.580 ms   1.59x   <- LOCKED
+#   Q-E  affine everywhere        DIVERGED    1.072 ms   2.34x
+#
+# N-F costs 0.005 dB against the reference — twenty times inside the 0.10 dB
+# decision threshold — while removing 37% of INT8 latency. N-E was pursued
+# through three escalation rungs (half LR, gradient clipping, residual init) and
+# diverged in all four variants; its 2.34x is not reachable by tuning
+# optimisation (findings F6).
+#
+# Width and block counts are set per-arm by the S/M/L family
+# (reports/family_reselection.md); this file carries the shared, locked pieces.
+name: nafnet
+img_channels: 3
+
+# --- LOCKED normalization. Do not change without re-running Task 1.5b. ---
+norm_type: layernorm2d          # deeper stages keep full LayerNorm
+full_res_norm_type: affine      # full-resolution stages: affine only (N-F)
+
+# Default geometry = the M arm, re-selected on N-F latency
+# (reports/family_reselection.md): M = w16_sidd, 7.37M params, 4.13 GMACs,
+# 2.873 ms. M moved from w24_b8 once the fixed normalization cost was removed —
+# w16_sidd carries the most full-resolution normalization of any config and so
+# gained the most from N-F.
+width: 16
+enc_blk_nums: [2, 2, 4, 8]
+middle_blk_num: 12
+dec_blk_nums: [2, 2, 2, 2]
+
+# The locked S/M/L family. Full table in reports/family_reselection.md.
+family:
+  S: {name: w16_b8,   width: 16, enc: [1, 1, 1, 8], middle: 2,  dec: [1, 1, 1, 1]}
+  M: {name: w16_sidd, width: 16, enc: [2, 2, 4, 8], middle: 12, dec: [2, 2, 2, 2]}
+  L: {name: w24_b28,  width: 24, enc: [1, 1, 1, 28], middle: 1, dec: [1, 1, 1, 1]}
+
+# Channel gate (src/models/gate.py). Export-verified at Gate G1; ops restricted
+# to GAP -> 1x1 conv -> ReLU -> 1x1 conv -> sigmoid -> channel-wise multiply.
+gate:
+  enabled: false
+  reduction: 4

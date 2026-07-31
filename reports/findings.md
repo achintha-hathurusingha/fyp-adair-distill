@@ -185,6 +185,7 @@ all dead:
 | Q-E | none | 1e-3 | 2000 | 3040 | 1040 |
 | Q-E′ | half LR, 2x warmup | 5e-4 | 4000 | 4926 | 926 |
 | Q-E″ | + grad clip (norm 1.0) | 5e-4 | 4000 | **4926** | 926 |
+| Q-E‴ | + residual init 0.1 | 5e-4 | 4000 | 5899 | **1899** |
 
 **The claim: gradient magnitude is bounded and *falling* at the point of
 failure, which rules out gradient-spike instability. Divergence is driven by
@@ -220,11 +221,32 @@ until the forward pass produces a non-finite value. LayerNorm's role here is
 therefore **load-bearing for trainability**, not merely a quality refinement —
 which is a stronger statement than "normalization helps."
 
+**A prediction that failed, and what it revises.** We expected Q-E‴ (residual
+scales initialised to 0.1 instead of 0) to die *earlier*, on the reasoning that
+zero-init buys a "protection window" of early stability which starting active
+removes. It died **later** — 1899 iterations past warmup versus 926, roughly
+double the survival.
+
+So the protection-window framing is wrong. A better reading: from zero, the
+residual scales receive a large uncontrolled gradient push and grow rapidly;
+starting them at 0.1 gives the optimiser usable signal to *regulate* them from
+the first step, slowing the growth. This still fits activation-scale growth as
+the mechanism — it changes the *rate*, not the endpoint — but it means the
+relevant quantity is how fast `beta`/`gamma` grow, not how long they stay near
+zero. **Recorded as a revision rather than folded quietly into the original
+story.**
+
 **Practical consequence.** The 2.34x speedup available from removing
-normalization entirely is not reachable by tuning optimisation. It would require
-an architectural mechanism that bounds activation scale without per-element
-statistics — weight normalisation, scaled residual branches with a hard cap, or
+normalization entirely is not reachable by tuning optimisation: four arms, three
+distinct mitigations (LR, clipping, initialisation), all diverged. It would
+require an architectural mechanism that bounds activation scale without
+per-element statistics — weight normalisation, a hard cap on residual scale, or
 a fixed (non-learned) scale. Out of scope here; recorded under future work.
+
+That said, the delay Q-E‴ bought is the one positive signal: **initialisation of
+the residual scales measurably controls the failure rate**, so a scheme that
+constrains `beta`/`gamma` growth directly is the most promising direction if
+norm-free training is ever revisited.
 
 **Limits.** One architecture (`w16_b8`), one task (denoising), one seed, 30k
 iterations. The bit-identical-trajectory argument is exact and does not depend

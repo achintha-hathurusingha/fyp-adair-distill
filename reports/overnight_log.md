@@ -198,3 +198,8 @@ Q-F started 19:36 local. Q-E queued behind it.
 ARMS_ALL_DONE
 === 17:22 UTC Q-E1 finished exit=0 ===
 === 17:42 UTC Q-E2 finished exit=0 ===
+=== 18:08 UTC Q-E3 finished exit=0 ===
+LADDER_DONE
+=== 18:12 UTC CACHE_DONE exit=0 ===
+=== 18:21 UTC CACHE_DONE exit=0 ===
+=== 18:21 UTC CACHE_DONE exit=0 ===
