@@ -37,3 +37,29 @@ quality is affected, not the ranking.
 fully separated, and a ranking at 30k is not guaranteed to hold at convergence.
 Flagged for review.
 
+=== 22:01 UTC starting Q-A ===
+
+### JUDGEMENT CALL — restarted the arms on BSD400+WED (2026-07-31 ~07:25 local)
+
+Q-A had reached iteration 2000 (PSNR 25.61) on **BSD400 alone** when the WED
+download completed. Killed and restarted all arms on the full set.
+
+Reason: 30k iters x batch 32 = 960k samples. Over BSD400's 400 images that is
+**2400 epochs** — a severe overfit regime that risks compressing the very
+differences between norm variants the ablation exists to measure. With WED
+(4744 images, verified count) the set is 5144 images and **187 epochs**, which
+is a normal training regime.
+
+Cost: ~15 minutes of Q-A progress. Judged clearly worth it — an ablation run in
+a heavy-overfit regime could have produced a null result that reflected the data
+budget rather than the architecture.
+
+### Also noted: create_run_dir stalled ~3.5 h
+
+config.yaml written 03:31, env.txt 07:07. The `pip freeze` subprocess in
+`create_run_dir` blocked, most likely contending with the concurrent AI Hub
+submission and WED download. Training did not begin until 07:07. Not fatal, but
+it cost 3.5 h of the night and is worth making non-blocking (or cached) before
+the next unattended run.
+
+=== 01:53 UTC starting Q-A (BSD400+WED, 5144 imgs) ===

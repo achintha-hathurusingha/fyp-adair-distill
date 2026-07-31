@@ -4,69 +4,142 @@
       "compile": "jgk8yq7yg",
       "config": "w16_b14",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b14_NE.onnx",
+      "profile": "jgd2vrx65",
       "quantize": "j579d2qng",
+      "results": {
+        "compute_units": {
+          "NPU": 531
+        },
+        "latency_ms": 1.17,
+        "peak_memory_mb": 97.41796875
+      },
       "variant": "NE"
     },
     "w16_b14_NF": {
       "compile": "jgllk26eg",
       "config": "w16_b14",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b14_NF.onnx",
+      "profile": "jpxx17k8p",
       "quantize": "jgzn721xg",
+      "results": {
+        "compute_units": {
+          "NPU": 825
+        },
+        "latency_ms": 1.818,
+        "peak_memory_mb": 97.609375
+      },
       "variant": "NF"
     },
     "w16_b28_NE": {
       "compile": "j56w1zevg",
       "config": "w16_b28",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b28_NE.onnx",
+      "profile": "j5m8zwn7p",
       "quantize": "jgo8vzy1p",
+      "results": {
+        "compute_units": {
+          "NPU": 817
+        },
+        "latency_ms": 1.458,
+        "peak_memory_mb": 98.5234375
+      },
       "variant": "NE"
     },
     "w16_b28_NF": {
       "compile": "jp36m1vxp",
       "config": "w16_b28",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b28_NF.onnx",
+      "profile": "jgnke96jg",
       "quantize": "jgnke0jjg",
+      "results": {
+        "compute_units": {
+          "NPU": 1293
+        },
+        "latency_ms": 2.355,
+        "peak_memory_mb": 97.68359375
+      },
       "variant": "NF"
     },
     "w16_b8_NE": {
       "compile": "jgo8vnk4p",
       "config": "w16_b8",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b8_NE.onnx",
+      "profile": "jprwy4vk5",
       "quantize": "j5qv20nog",
+      "results": {
+        "compute_units": {
+          "NPU": 399
+        },
+        "latency_ms": 1.072,
+        "peak_memory_mb": 98.63671875
+      },
       "variant": "NE"
     },
     "w16_b8_NF": {
       "compile": "jpeyvwe75",
       "config": "w16_b8",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b8_NF.onnx",
+      "profile": "jp2em7k6p",
       "quantize": "jgk8yv1ng",
+      "results": {
+        "compute_units": {
+          "NPU": 609
+        },
+        "latency_ms": 1.58,
+        "peak_memory_mb": 97.7734375
+      },
       "variant": "NF"
     },
     "w16_sidd_NE": {
       "compile": "jgzn7jozg",
       "config": "w16_sidd",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_sidd_NE.onnx",
+      "profile": "jpymd410p",
       "quantize": "j5w49wv4g",
+      "results": {
+        "compute_units": {
+          "NPU": 817
+        },
+        "latency_ms": 1.84,
+        "peak_memory_mb": 97.7734375
+      },
       "variant": "NE"
     },
     "w16_sidd_NF": {
       "compile": "jg9d4yjq5",
       "config": "w16_sidd",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_sidd_NF.onnx",
+      "profile": "jp06r140p",
       "quantize": "jp06r4q0p",
+      "results": {
+        "compute_units": {
+          "NPU": 1265
+        },
+        "latency_ms": 2.873,
+        "peak_memory_mb": 98.15234375
+      },
       "variant": "NF"
     },
     "w24_b14_NE": {
       "compile": "j579dl0qg",
       "config": "w24_b14",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b14_NE.onnx",
+      "profile": "jgk8ylvvg",
       "quantize": "jp168yql5",
+      "results": {
+        "compute_units": {
+          "NPU": 531
+        },
+        "latency_ms": 1.735,
+        "peak_memory_mb": 97.91796875
+      },
       "variant": "NE"
     },
     "w24_b14_NF": {
       "compile": "jp43wdkq5",
       "config": "w24_b14",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b14_NF.onnx",
+      "profile": "j5qv270eg",
       "quantize": "jpymdrrrp",
       "variant": "NF"
     },
@@ -74,6 +147,7 @@
       "compile": "jpxx16njp",
       "config": "w24_b28",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b28_NE.onnx",
+      "profile": "jgllk042g",
       "quantize": "jp43wko25",
       "variant": "NE"
     },
@@ -81,6 +155,7 @@
       "compile": "j5m8z6qyp",
       "config": "w24_b28",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b28_NF.onnx",
+      "profile": "j56w132ng",
       "quantize": "jgnkel2jg",
       "variant": "NF"
     },
@@ -88,6 +163,7 @@
       "compile": "jprwy22v5",
       "config": "w24_b8",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b8_NE.onnx",
+      "profile": "jp36m4nmp",
       "quantize": "jprwy86v5",
       "variant": "NE"
     },
@@ -95,6 +171,7 @@
       "compile": "jp2em99xp",
       "config": "w24_b8",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b8_NF.onnx",
+      "profile": "jgo8v1z1p",
       "quantize": "jpeyved75",
       "variant": "NF"
     },
@@ -102,6 +179,7 @@
       "compile": "jgk8yqqyg",
       "config": "w24_sidd",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_sidd_NE.onnx",
+      "profile": "jpv7w1qzp",
       "quantize": "jgnkel8jg",
       "variant": "NE"
     },
@@ -109,6 +187,7 @@
       "compile": "j5qv2rr7g",
       "config": "w24_sidd",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_sidd_NF.onnx",
+      "profile": "jgjql0d15",
       "quantize": "jgk8y7mvg",
       "variant": "NF"
     },
@@ -116,6 +195,7 @@
       "compile": "jgllk22eg",
       "config": "w32_b14",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b14_NE.onnx",
+      "profile": "jpeyvro85",
       "quantize": "jpeyvwd85",
       "variant": "NE"
     },
@@ -123,6 +203,7 @@
       "compile": "j56w1zzvg",
       "config": "w32_b14",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b14_NF.onnx",
+      "profile": "jgzn7x24g",
       "quantize": "j56w1zyng",
       "variant": "NF"
     },
@@ -130,6 +211,7 @@
       "compile": "jp36m11xp",
       "config": "w32_b28",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b28_NE.onnx",
+      "profile": "j5w49dw4g",
       "quantize": "jp06r242p",
       "variant": "NE"
     },
@@ -137,6 +219,7 @@
       "compile": "jgo8vnn4p",
       "config": "w32_b28",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b28_NF.onnx",
+      "profile": "jg9d430m5",
       "quantize": "jp168w4k5",
       "variant": "NF"
     },
@@ -144,6 +227,7 @@
       "compile": "jpv7wrr7p",
       "config": "w32_b8",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b8_NE.onnx",
+      "profile": "jp168d2n5",
       "quantize": "j5qv2r6eg",
       "variant": "NE"
     },
@@ -151,12 +235,15 @@
       "compile": "jpeyvww75",
       "config": "w32_b8",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b8_NF.onnx",
+      "profile": "jgd2vrn65",
       "quantize": "jp817mqq5",
       "variant": "NF"
     },
     "w32_sidd_NE": {
+      "compile": "j579dj2ng",
       "config": "w32_sidd",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_sidd_NE.onnx",
+      "profile": "jp81730q5",
       "quantize": "jp2em90xp",
       "variant": "NE"
     },
@@ -164,6 +251,7 @@
       "compile": "jgd2vqqk5",
       "config": "w32_sidd",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_sidd_NF.onnx",
+      "profile": "jp43wxn25",
       "quantize": "jg9d4y0q5",
       "variant": "NF"
     }

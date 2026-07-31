@@ -130,6 +130,77 @@ class FrozenTeacher(nn.Module):
                 f"teacher output {tuple(out.shape)} != input {tuple(x.shape)}")
         return out
 
+    @torch.no_grad()
+    def forward_tiled(self, x: torch.Tensor, *, tile: int = 256,
+                      overlap: int = 32) -> torch.Tensor:
+        """Restore a large image in overlapping tiles.
+
+        AdaIR is a transformer and its attention memory scales badly with
+        resolution, so full-resolution RESIDE images can exhaust GPU memory.
+        Tiles are blended with a cosine-tapered weight map rather than hard-cut,
+        because hard tile boundaries leave visible seams that would then be
+        baked into every cached teacher output.
+
+        Falls back to a single forward when the image already fits the tile.
+
+        Args:
+            x: NCHW input.
+            tile: tile side length.
+            overlap: overlap between adjacent tiles, in pixels.
+        """
+        if self.net.training:
+            raise RuntimeError(
+                "teacher is in training mode — refusing to run inference")
+        _, _, h, w = x.shape
+        if h <= tile and w <= tile:
+            return self.forward(x)
+        if overlap >= tile:
+            raise ValueError(f"overlap {overlap} must be smaller than tile {tile}")
+
+        stride = tile - overlap
+        device = self.device
+        out = torch.zeros_like(x, device=device)
+        weight = torch.zeros((1, 1, h, w), device=device)
+
+        # Cosine taper: full weight in the tile interior, falling smoothly to ~0
+        # at any edge that abuts a neighbouring tile. Interior edges of the
+        # image are NOT tapered — nothing overlaps there to make up the weight.
+        # A Hann window of length 2*overlap rises 0->1 over its first half and
+        # falls 1->0 over its second, giving the two ramps directly.
+        hann = torch.hann_window(2 * overlap, periodic=False, device=device)
+        rise, fall = hann[:overlap], hann[overlap:]
+
+        def taper(length: int, lead: bool, trail: bool) -> torch.Tensor:
+            t = torch.ones(length, device=device)
+            k = min(overlap, length // 2)
+            if lead and k > 0:
+                t[:k] = rise[:k]
+            if trail and k > 0:
+                t[-k:] = fall[-k:]
+            return t
+
+        ys = list(range(0, max(1, h - tile + 1), stride))
+        xs = list(range(0, max(1, w - tile + 1), stride))
+        if ys[-1] != h - tile:
+            ys.append(max(0, h - tile))
+        if xs[-1] != w - tile:
+            xs.append(max(0, w - tile))
+
+        for top in ys:
+            for left in xs:
+                patch = x[:, :, top:top + tile, left:left + tile].to(device)
+                pred = self.forward(patch)
+                ph, pw = pred.shape[-2:]
+                wy = taper(ph, top > 0, top + ph < h)
+                wx = taper(pw, left > 0, left + pw < w)
+                wmap = (wy[:, None] * wx[None, :]).unsqueeze(0).unsqueeze(0)
+                out[:, :, top:top + ph, left:left + pw] += pred * wmap
+                weight[:, :, top:top + ph, left:left + pw] += wmap
+
+        if float(weight.min()) <= 0:
+            raise RuntimeError("tiling left uncovered pixels — check tile/overlap")
+        return out / weight
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return (f"FrozenTeacher({self.checkpoint.name}, "
                 f"params={self.n_params:,}, epoch={self.epoch}, "
