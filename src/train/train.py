@@ -38,20 +38,39 @@ ARMS: dict[str, dict] = {
     "Q-E3": {"norm": {"norm_type": "affine"}, "lr_scale": 0.5, "warmup_scale": 2.0,
              "grad_clip": 1.0, "residual_init": 0.1,
              "desc": "Q-E'' + residual scaling init 0.1"},
+    # M spot-check — the norm ablation ran on S (w16_b8), but M (w16_sidd) is
+    # the config the Phase 02 grid runs on AND the one carrying the most
+    # full-resolution normalization, so a quality cost from N-F surfaces here
+    # first. Short run: trend, not convergence.
+    "M-A": {"norm": {"norm_type": "layernorm2d"},
+            "desc": "M spot-check: LayerNorm2d everywhere on w16_sidd"},
+    "M-F": {"norm": {"norm_type": "layernorm2d", "full_res_norm_type": "affine"},
+            "desc": "M spot-check: affine at full resolution on w16_sidd"},
 }
 
-#: w16_b8 — the config on which every norm variant is already profiled.
+#: w16_b8 — the config on which every norm variant is already profiled (arm S).
 W16_B8 = dict(width=16, enc_blk_nums=[1, 1, 1, 8], middle_blk_num=2,
               dec_blk_nums=[1, 1, 1, 1])
+
+#: w16_sidd — the M arm after family re-selection on N-F latency. It carries
+#: the most full-resolution normalization of any config, which is precisely why
+#: it gained most from N-F — and precisely why a quality cost from N-F would
+#: show up here first. Hence the M spot-check.
+W16_SIDD = dict(width=16, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12,
+                dec_blk_nums=[2, 2, 2, 2])
+
+#: Arms that override the default geometry.
+ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD}
 
 
 def build_config(arm: str, iters: int, batch_size: int, lr: float,
                  patch_size: int = 128) -> dict:
     spec = ARMS[arm]
+    geometry = ARM_GEOMETRY.get(arm, W16_B8)
     return {
         "arm": arm,
         "description": spec["desc"],
-        "model": {**W16_B8, **spec["norm"]},
+        "model": {**geometry, **spec["norm"]},
         "data": {"patch_size": patch_size, "batch_size": batch_size,
                  "sigmas": [15, 25, 50]},
         "optim": {"name": "adamw", "lr": lr * spec.get("lr_scale", 1.0),

@@ -203,3 +203,20 @@ LADDER_DONE
 === 18:12 UTC CACHE_DONE exit=0 ===
 === 18:21 UTC CACHE_DONE exit=0 ===
 === 18:21 UTC CACHE_DONE exit=0 ===
+=== 18:32 UTC CACHE_DONE exit=0 ===
+
+## Priority 1 — M spot-check started (00:05 local, 2026-08-01)
+
+The norm ablation ran entirely on **S (`w16_b8`)**. Family re-selection then moved
+M to **`w16_sidd`** *because it carries the most full-resolution normalization* —
+which is exactly the property that would make a quality cost from N-F most
+visible. The 0.005 dB result is a statement about S, and M is the config the
+whole Phase 02 grid will run on.
+
+Running N-A vs N-F on `w16_sidd` (7,371,923 params — matches the family table),
+10k iterations, single seed, everything else identical to the original ablation.
+Trend check, not convergence.
+
+Teacher caching paused at **450/15632 (0.12 GB)** to free the GPU; it is
+manifest-resumable and will continue afterwards.
+
