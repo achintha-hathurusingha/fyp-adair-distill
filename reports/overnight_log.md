@@ -107,3 +107,33 @@ place two blocks at full resolution — the most full-resolution normalisation o
 any config — which is exactly what a per-element, resolution-weighted cost model
 predicts.
 
+
+## Task 2 in progress — Q-A training healthily
+
+| iteration | loss | BSD68 PSNR | SSIM | grad norm | peak VRAM |
+|---|---|---|---|---|---|
+| 2000 | 0.04310 | 25.320 | 0.6655 | 0.126 | 2.14 GB |
+| 4000 | 0.02479 | 29.386 | 0.8225 | 0.158 | 2.14 GB |
+
+~10.3 min per 2k iterations including validation, so ~2.6 h per arm and ~7.8 h
+for the three primary arms. Gradient norms are small and stable; no sign of
+instability.
+
+## Tooling built ahead of the data (Tasks 4 and 6)
+
+Both report generators are written and exercised *before* the results land, so
+the analysis path is tested rather than improvised at the end.
+
+- `scripts/norm_quality_report.py` — plots PSNR / loss / gradient norm /
+  per-level activation magnitude, and applies the decision rule mechanically,
+  including the STOP-AND-REPORT branch.
+- `scripts/reselect_family.py` — profile-then-select, keeps both pre- and
+  post-fix tables with rank-change markers, exits non-zero on an invariant
+  failure.
+
+**Dry run of the re-selection against N-E latency already shows the predicted
+effect** (the norm is not locked yet — this is a rehearsal, not a decision):
+latency span **2.45x -> 2.60x**, and **M moves from `w24_b8` to `w16_sidd`**.
+`w16_sidd` carries the most full-resolution normalisation of any config and so
+gained the most from removing it (2.58x). Invariants pass.
+
