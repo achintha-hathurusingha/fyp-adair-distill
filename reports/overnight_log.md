@@ -168,3 +168,28 @@ time forces an early stop, arms will be compared at a **common iteration count**
 controlled — the ablation is a relative measurement, and all arms share data,
 seed, schedule and budget.
 
+=== 14:05 UTC Q-A finished exit=0 ===
+
+## Q-A COMPLETE — reference established (14:05 UTC)
+
+| metric | value |
+|---|---|
+| best BSD68 PSNR | **31.019 dB** |
+| SSIM | 0.8734 |
+| iterations | 30,000 |
+| peak VRAM | 2.14 GB |
+| diverged | no |
+
+Converged cleanly — 28k to 30k moved PSNR by +0.001 dB, and gradient norms fell
+to ~0.02 without any instability.
+
+### Decision thresholds now fixed against this reference
+
+| Q-E (best rung) | vs Q-A 31.019 | action |
+|---|---|---|
+| >= 30.919 dB | within 0.10 dB | **lock N-E** (2.34x on w16_b8) |
+| 30.719 - 30.919 | 0.10-0.30 dB worse | check Q-F; within 0.10 dB -> lock N-F, else STOP AND REPORT |
+| < 30.719 dB | >0.30 dB worse | lock N-A if Q-F also >0.15 dB worse |
+
+Q-F started 19:36 local. Q-E queued behind it.
+
