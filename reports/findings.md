@@ -174,6 +174,65 @@ fusion-matched pattern. **Untested.**
 
 ---
 
+## F6. Removing normalization from NAFNet fails by activation-scale growth, not by gradient-spike instability
+
+Training `w16_b8` with **affine-only normalization everywhere** (no statistics
+anywhere in the network) diverges reproducibly. Three arms, three mitigations,
+all dead:
+
+| arm | mitigation | LR peak | warmup ends | diverged at | gap after warmup |
+|---|---|---|---|---|---|
+| Q-E | none | 1e-3 | 2000 | 3040 | 1040 |
+| Q-E′ | half LR, 2x warmup | 5e-4 | 4000 | 4926 | 926 |
+| Q-E″ | + grad clip (norm 1.0) | 5e-4 | 4000 | **4926** | 926 |
+
+**The claim: gradient magnitude is bounded and *falling* at the point of
+failure, which rules out gradient-spike instability. Divergence is driven by
+unconstrained activation-scale growth through the unnormalized residual stack,
+not by an update-magnitude event.**
+
+Two independent lines of evidence converge on this.
+
+**(a) Q-E″ and Q-E′ produced bit-identical trajectories.** Every logged value
+matched exactly — loss `0.05443`/`0.03493`, PSNR `23.705`/`26.695`, gradient norm
+`0.153`/`0.111` — and both died at the *same* iteration, 4926. Q-E″ differs from
+Q-E′ only by an active gradient-clipping safety net. Floating-point arithmetic
+guarantees that a single clip event forks the trajectories permanently. They
+never forked, so **clipping fired exactly zero times**: no gradient ever reached
+the 1.0 threshold. This eliminates the entire spike-driven hypothesis class
+without needing to instrument the failing step.
+
+**(b) The gradient norm falls, rather than rises, into the failure.** 0.153 at
+it 2000 → 0.111 at it 4000 → dead at 4926. A spike-driven collapse shows
+gradients climbing beforehand; this shows the opposite.
+
+**Why halving the learning rate only postponed it.** Q-E and Q-E′ both died
+roughly 1000 iterations *after warmup completed*, whatever the peak LR. The
+failure tracks a **step budget past full LR**, not an LR magnitude — consistent
+with residual branches growing to a critical scale after a roughly fixed number
+of full-rate updates, and inconsistent with an instability threshold in LR.
+
+**Mechanism.** NAFNet's `beta`/`gamma` residual scales initialise to zero, so
+every block starts as an exact identity and the network is trivially stable
+early. Nothing in the affine-only variant bounds activation magnitude once those
+scales become non-trivial: across 17 blocks the residual stream compounds freely
+until the forward pass produces a non-finite value. LayerNorm's role here is
+therefore **load-bearing for trainability**, not merely a quality refinement —
+which is a stronger statement than "normalization helps."
+
+**Practical consequence.** The 2.34x speedup available from removing
+normalization entirely is not reachable by tuning optimisation. It would require
+an architectural mechanism that bounds activation scale without per-element
+statistics — weight normalisation, scaled residual branches with a hard cap, or
+a fixed (non-learned) scale. Out of scope here; recorded under future work.
+
+**Limits.** One architecture (`w16_b8`), one task (denoising), one seed, 30k
+iterations. The bit-identical-trajectory argument is exact and does not depend
+on sample size; the step-budget observation rests on three runs and should be
+treated as strongly indicative rather than established.
+
+---
+
 ## F5. A 2025 paper's evaluation code cannot run on a 2026 environment, and one failure mode is silent
 
 AdaIR (ICLR 2025) pins `scikit-image==0.19.3` and `scikit-video==1.1.11`
