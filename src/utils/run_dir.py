@@ -28,16 +28,25 @@ def _git_commit() -> str:
         return "unknown"
 
 
-def _pip_freeze() -> str:
-    """Return ``pip freeze`` output for the active environment."""
+def _pip_freeze(timeout: int = 60) -> str:
+    """Return ``pip freeze`` output for the active environment.
+
+    Bounded by a timeout: during an unattended run this call blocked for ~3.5
+    hours while contending with concurrent network jobs, silently delaying
+    training start. An environment dump is useful provenance but is never worth
+    stalling a run for, so a timeout degrades to a recorded note instead.
+    """
     try:
         out = subprocess.run(
             [sys.executable, "-m", "pip", "freeze"],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, check=True, timeout=timeout,
         )
         return out.stdout
-    except subprocess.CalledProcessError as exc:  # pragma: no cover
-        return f"pip freeze failed: {exc}"
+    except subprocess.TimeoutExpired:
+        return (f"pip freeze timed out after {timeout}s; environment not "
+                "captured. See requirements.txt for the intended pins.\n")
+    except (subprocess.CalledProcessError, OSError) as exc:  # pragma: no cover
+        return f"pip freeze failed: {exc}\n"
 
 
 def create_run_dir(runs_root: str | Path, experiment: str, *,

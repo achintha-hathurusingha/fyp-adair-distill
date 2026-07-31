@@ -141,6 +141,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b14_NF.onnx",
       "profile": "j5qv270eg",
       "quantize": "jpymdrrrp",
+      "results": {
+        "compute_units": {
+          "NPU": 825
+        },
+        "latency_ms": 2.576,
+        "peak_memory_mb": 98.67578125
+      },
       "variant": "NF"
     },
     "w24_b28_NE": {
@@ -149,6 +156,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b28_NE.onnx",
       "profile": "jgllk042g",
       "quantize": "jp43wko25",
+      "results": {
+        "compute_units": {
+          "NPU": 817
+        },
+        "latency_ms": 2.124,
+        "peak_memory_mb": 98.9375
+      },
       "variant": "NE"
     },
     "w24_b28_NF": {
@@ -157,6 +171,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b28_NF.onnx",
       "profile": "j56w132ng",
       "quantize": "jgnkel2jg",
+      "results": {
+        "compute_units": {
+          "NPU": 1293
+        },
+        "latency_ms": 3.32,
+        "peak_memory_mb": 99.8359375
+      },
       "variant": "NF"
     },
     "w24_b8_NE": {
@@ -165,6 +186,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b8_NE.onnx",
       "profile": "jp36m4nmp",
       "quantize": "jprwy86v5",
+      "results": {
+        "compute_units": {
+          "NPU": 399
+        },
+        "latency_ms": 1.536,
+        "peak_memory_mb": 98.41015625
+      },
       "variant": "NE"
     },
     "w24_b8_NF": {
@@ -173,6 +201,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b8_NF.onnx",
       "profile": "jgo8v1z1p",
       "quantize": "jpeyved75",
+      "results": {
+        "compute_units": {
+          "NPU": 609
+        },
+        "latency_ms": 2.248,
+        "peak_memory_mb": 100.46875
+      },
       "variant": "NF"
     },
     "w24_sidd_NE": {
@@ -181,6 +216,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_sidd_NE.onnx",
       "profile": "jpv7w1qzp",
       "quantize": "jgnkel8jg",
+      "results": {
+        "compute_units": {
+          "NPU": 817
+        },
+        "latency_ms": 2.792,
+        "peak_memory_mb": 100.67578125
+      },
       "variant": "NE"
     },
     "w24_sidd_NF": {
@@ -189,6 +231,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_sidd_NF.onnx",
       "profile": "jgjql0d15",
       "quantize": "jgk8y7mvg",
+      "results": {
+        "compute_units": {
+          "NPU": 1265
+        },
+        "latency_ms": 4.225,
+        "peak_memory_mb": 98.55859375
+      },
       "variant": "NF"
     },
     "w32_b14_NE": {
@@ -197,6 +246,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b14_NE.onnx",
       "profile": "jpeyvro85",
       "quantize": "jpeyvwd85",
+      "results": {
+        "compute_units": {
+          "NPU": 531
+        },
+        "latency_ms": 1.732,
+        "peak_memory_mb": 100.0546875
+      },
       "variant": "NE"
     },
     "w32_b14_NF": {
@@ -205,6 +261,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b14_NF.onnx",
       "profile": "jgzn7x24g",
       "quantize": "j56w1zyng",
+      "results": {
+        "compute_units": {
+          "NPU": 825
+        },
+        "latency_ms": 2.679,
+        "peak_memory_mb": 97.8125
+      },
       "variant": "NF"
     },
     "w32_b28_NE": {
@@ -213,6 +276,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b28_NE.onnx",
       "profile": "j5w49dw4g",
       "quantize": "jp06r242p",
+      "results": {
+        "compute_units": {
+          "NPU": 817
+        },
+        "latency_ms": 2.217,
+        "peak_memory_mb": 98.98828125
+      },
       "variant": "NE"
     },
     "w32_b28_NF": {
@@ -221,6 +291,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b28_NF.onnx",
       "profile": "jg9d430m5",
       "quantize": "jp168w4k5",
+      "results": {
+        "compute_units": {
+          "NPU": 1293
+        },
+        "latency_ms": 3.543,
+        "peak_memory_mb": 98.37109375
+      },
       "variant": "NF"
     },
     "w32_b8_NE": {
@@ -229,6 +306,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b8_NE.onnx",
       "profile": "jp168d2n5",
       "quantize": "j5qv2r6eg",
+      "results": {
+        "compute_units": {
+          "NPU": 399
+        },
+        "latency_ms": 1.489,
+        "peak_memory_mb": 99.8828125
+      },
       "variant": "NE"
     },
     "w32_b8_NF": {
@@ -237,6 +321,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b8_NF.onnx",
       "profile": "jgd2vrn65",
       "quantize": "jp817mqq5",
+      "results": {
+        "compute_units": {
+          "NPU": 609
+        },
+        "latency_ms": 2.263,
+        "peak_memory_mb": 97.86328125
+      },
       "variant": "NF"
     },
     "w32_sidd_NE": {
@@ -245,6 +336,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_sidd_NE.onnx",
       "profile": "jp81730q5",
       "quantize": "jp2em90xp",
+      "results": {
+        "compute_units": {
+          "NPU": 817
+        },
+        "latency_ms": 2.673,
+        "peak_memory_mb": 97.796875
+      },
       "variant": "NE"
     },
     "w32_sidd_NF": {
@@ -253,6 +351,13 @@
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_sidd_NF.onnx",
       "profile": "jp43wxn25",
       "quantize": "jg9d4y0q5",
+      "results": {
+        "compute_units": {
+          "NPU": 1265
+        },
+        "latency_ms": 4.226,
+        "peak_memory_mb": 99.56640625
+      },
       "variant": "NF"
     }
   }

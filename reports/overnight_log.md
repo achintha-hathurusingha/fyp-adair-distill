@@ -63,3 +63,47 @@ it cost 3.5 h of the night and is worth making non-blocking (or cached) before
 the next unattended run.
 
 === 01:53 UTC starting Q-A (BSD400+WED, 5144 imgs) ===
+
+### Session restart (03:11 UTC) — arms relaunched
+
+The Claude Code session ended and took all background jobs with it. Q-A had only
+just started (no validations logged), so nothing measurable was lost.
+
+Fixed the root cause of the earlier 3.5 h stall first: `_pip_freeze` in
+`create_run_dir` is now bounded by a 60 s timeout and degrades to a recorded
+note. An environment dump is useful provenance but is never worth stalling a
+training run for.
+
+Relaunched Q-A -> Q-F -> Q-E with `--resume` support, so a further interruption
+costs at most one 2k-iteration checkpoint interval per arm.
+
+
+## Task 0 COMPLETE — 24/24 norm-variant jobs profiled on S24
+
+| config | N-A ms | N-F ms | N-E ms | N-F x | N-E x |
+|---|---|---|---|---|---|
+| w16_b8 | 2.513 | 1.580 | 1.072 | 1.59 | 2.34 |
+| w16_b14 | 2.742 | 1.818 | 1.170 | 1.51 | 2.34 |
+| w16_b28 | 3.299 | 2.355 | 1.458 | 1.40 | 2.26 |
+| w32_b8 | 3.160 | 2.263 | 1.489 | 1.40 | 2.12 |
+| w24_b8 | 3.195 | 2.248 | 1.536 | 1.42 | 2.08 |
+| w32_b14 | 3.590 | 2.679 | 1.732 | 1.34 | 2.07 |
+| w24_b14 | 3.519 | 2.576 | 1.735 | 1.37 | 2.03 |
+| w16_sidd | 4.742 | 2.873 | 1.840 | 1.65 | 2.58 |
+| w24_b28 | 4.256 | 3.320 | 2.124 | 1.28 | 2.00 |
+| w32_b28 | 4.469 | 3.543 | 2.217 | 1.26 | 2.02 |
+| w32_sidd | 6.158 | 4.226 | 2.673 | 1.46 | 2.30 |
+| w24_sidd | 6.091 | 4.225 | 2.792 | 1.44 | 2.18 |
+
+**Mean speedup: N-F 1.43x, N-E 2.19x.** The w16_b8 result generalises — this is
+not a single-config artifact.
+
+**Latency span widens as predicted:** N-A 2.45x -> N-F 2.67x, N-E 2.60x. Removing
+the large roughly-fixed normalisation cost decompresses the range.
+
+**The speedup is non-uniform, and its ordering supports F1.** N-F ranges
+1.26x (w24_b28) to 1.65x (w16_sidd). `sidd` configurations gain most because they
+place two blocks at full resolution — the most full-resolution normalisation of
+any config — which is exactly what a per-element, resolution-weighted cost model
+predicts.
+
