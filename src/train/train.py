@@ -172,6 +172,10 @@ def main() -> None:
     seed_everything(args.seed)
     cfg = build_config(args.arm, args.iters, args.batch_size, args.lr,
                        args.patch_size)
+    if args.num_workers is not None:
+        # Must happen BEFORE create_run_dir: the run directory has to record the
+        # value actually used, not the one the YAML suggested.
+        cfg["data"]["num_workers"] = args.num_workers
 
     paths = load_paths()
     data_root = Path(paths["data_root"])
@@ -200,9 +204,6 @@ def main() -> None:
                      else cfg["data"]["num_workers"]),
         seed=args.seed, length=length,
         cache_budget_gb=cfg["data"]["cache_budget_gb"])
-
-    if args.num_workers is not None:
-        cfg["data"]["num_workers"] = args.num_workers
 
     model = build_model(cfg)
     trainer = Trainer(model, loader, cfg, run_dir, device=args.device,

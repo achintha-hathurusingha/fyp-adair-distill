@@ -71,3 +71,37 @@ def test_architecture_drift_raises(tmp_path, monkeypatch) -> None:
     monkeypatch.setitem(ARMS["B0"], "config", str(p))
     with pytest.raises(ValueError, match="architecture drift"):
         _cfg()
+
+
+def test_num_workers_override_is_recorded_not_just_applied(monkeypatch, tmp_path) -> None:
+    """The run directory must record the workers actually used.
+
+    A CLI override applied AFTER create_run_dir writes config.yaml leaves the
+    directory claiming the YAML value while the run uses another — the same
+    provenance failure as an un-recorded resume. Order matters, so it is pinned.
+    """
+    import sys
+    from src.train import train as train_mod
+
+    captured = {}
+
+    def fake_create_run_dir(runs_root, experiment, *, config, seed):
+        captured["config"] = config
+        d = tmp_path / "run"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def stop(*a, **k):
+        raise SystemExit(0)          # abort before any real work
+
+    monkeypatch.setattr(train_mod, "create_run_dir", fake_create_run_dir)
+    monkeypatch.setattr(train_mod, "build_train_loader", stop)
+    monkeypatch.setattr(sys, "argv",
+                        ["train", "--arm", "B0", "--num-workers", "12",
+                         "--device", "cpu"])
+    with pytest.raises(SystemExit):
+        train_mod.main()
+
+    assert captured["config"]["data"]["num_workers"] == 12, (
+        "run directory recorded "
+        f"{captured['config']['data']['num_workers']}, CLI asked for 12")
