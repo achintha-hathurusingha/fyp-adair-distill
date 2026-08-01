@@ -180,6 +180,10 @@ def main() -> None:
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out-root", default="runs/1p5b")
     ap.add_argument("--resume", default=None)
+    ap.add_argument("--smoke", type=int, default=0, metavar="N",
+                    help="pre-launch check: run N iterations on the REAL "
+                         "resolved config, validating and checkpointing, then "
+                         "stop. Everything except the run length is untouched.")
     ap.add_argument("--resume-reason", default="",
                     help="why this run was resumed; recorded in resumes.jsonl")
     args = ap.parse_args()
@@ -191,6 +195,16 @@ def main() -> None:
         # Must happen BEFORE create_run_dir: the run directory has to record the
         # value actually used, not the one the YAML suggested.
         cfg["data"]["num_workers"] = args.num_workers
+    if args.smoke:
+        # Shrink ONLY the length. A smoke test that quietly altered batch size,
+        # normalization or the optimiser would validate a config nobody is about
+        # to run. Validation and checkpointing stay on, because "does it train"
+        # is a weaker question than "does the whole loop work end to end".
+        cfg["schedule"]["total_iters"] = args.smoke
+        cfg["schedule"]["warmup_iters"] = max(1, args.smoke // 8)
+        cfg["train"]["val_every"] = args.smoke
+        cfg["train"]["ckpt_every"] = args.smoke
+        cfg["smoke_test"] = args.smoke
 
     paths = load_paths()
     data_root = Path(paths["data_root"])

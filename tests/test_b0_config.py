@@ -107,3 +107,44 @@ def test_num_workers_override_is_recorded_not_just_applied(monkeypatch, tmp_path
     assert captured["config"]["data"]["num_workers"] == 12, (
         "run directory recorded "
         f"{captured['config']['data']['num_workers']}, CLI asked for 12")
+
+
+def test_smoke_flag_shrinks_only_the_run_length(monkeypatch, tmp_path) -> None:
+    """A smoke test must validate the config that is about to run.
+
+    Shrinking anything besides the length -- batch size, normalization, the
+    optimiser -- would certify a configuration nobody is about to launch.
+    """
+    import sys
+    from src.train import train as train_mod
+
+    captured = {}
+
+    def fake_create_run_dir(runs_root, experiment, *, config, seed):
+        captured["config"] = config
+        d = tmp_path / "run"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def stop(*a, **k):
+        raise SystemExit(0)
+
+    monkeypatch.setattr(train_mod, "create_run_dir", fake_create_run_dir)
+    monkeypatch.setattr(train_mod, "build_train_loader", stop)
+    monkeypatch.setattr(sys, "argv",
+                        ["train", "--arm", "B0", "--smoke", "200",
+                         "--device", "cpu"])
+    with pytest.raises(SystemExit):
+        train_mod.main()
+
+    c = captured["config"]
+    assert c["schedule"]["total_iters"] == 200
+    assert c["smoke_test"] == 200
+    # Everything that defines WHAT is trained must be untouched.
+    assert c["data"]["batch_size"] == 16
+    assert c["data"]["patch_size"] == 128
+    assert c["train"]["accum_steps"] == 2
+    assert c["optim"]["lr"] == 1.0e-3
+    assert c["optim"]["grad_clip"] == 1.0
+    assert c["model"]["full_res_norm_type"] == "affine_clamp"
+    assert c["model"]["clamp_bound"] == 8.0

@@ -30,7 +30,13 @@ from src.utils.config import REPO_ROOT, load_yaml
 
 
 def load_latency(norm: str) -> dict[str, float]:
-    """Latency per config for a normalization variant ('NA', 'NF' or 'NE')."""
+    """Latency per config for a variant ('NA', 'NF', 'NE' or 'FC').
+
+    FC is the LOCKED variant after findings F9: N-F plus a magnitude clamp at
+    the full-resolution stages. It is swept across the whole grid rather than
+    extrapolated from the M arm, because the clamp adds Clip nodes in proportion
+    to each config's full-resolution block count, so its cost is not uniform.
+    """
     if norm == "NA":
         man = json.loads((REPO_ROOT / "runs/sweep/aihub_manifest.json")
                          .read_text(encoding="utf-8"))["models"]
@@ -48,7 +54,7 @@ def load_latency(norm: str) -> dict[str, float]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Re-select the S/M/L family.")
-    ap.add_argument("--norm", required=True, choices=["NA", "NF", "NE"],
+    ap.add_argument("--norm", required=True, choices=["NA", "NF", "NE", "FC"],
                     help="the LOCKED normalization variant")
     ap.add_argument("--config", default="configs/sweep/student_sweep.yaml")
     ap.add_argument("--out", default="reports/family_reselection.md")

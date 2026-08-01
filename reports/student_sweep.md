@@ -121,3 +121,48 @@ Real AI Hub compilation and profiling completed; see the NPU columns above.
 - `w32_b14`: compute units {'NPU': 853}, peak 9 MB
 - `w32_b28`: compute units {'NPU': 1321}, peak 8 MB
 - `w32_sidd`: compute units {'NPU': 1321}, peak 100 MB
+
+## Family re-selection on the LOCKED Fix-C variant (2026-08-02)
+
+After findings F9 the locked normalization changed from `affine` to
+`affine_clamp(8.0)` at the full-resolution stages. The family was re-run
+rather than assumed unchanged: the clamp adds `Clip` nodes in proportion
+to each config's full-resolution block count, so its cost is **not**
+uniform across the grid and the M arm's +0.3% does not transfer.
+
+All 12 configs re-profiled on Samsung Galaxy S24, INT8, through the
+corrected profile-then-select path.
+
+| config | N-F ms | Fix-C ms | delta | % |
+|---|---|---|---|---|
+| w16_b8 | 1.580 | 1.577 | -0.003 | -0.19% |
+| w16_b14 | 1.818 | 1.811 | -0.007 | -0.39% |
+| w16_b28 | 2.355 | 2.349 | -0.006 | -0.25% |
+| w16_sidd | 2.873 | 2.885 | +0.012 | +0.42% |
+| w24_b8 | 2.248 | 2.252 | +0.004 | +0.18% |
+| w24_b14 | 2.576 | 2.580 | +0.004 | +0.16% |
+| w24_b28 | 3.320 | 3.328 | +0.008 | +0.24% |
+| w24_sidd | 4.225 | 4.223 | -0.002 | -0.05% |
+| w32_b8 | 2.263 | 2.250 | -0.013 | -0.57% |
+| w32_b14 | 2.679 | 2.708 | +0.029 | +1.08% |
+| w32_b28 | 3.543 | 3.545 | +0.002 | +0.06% |
+| w32_sidd | 4.226 | 4.249 | +0.023 | +0.54% |
+
+Mean **+0.10%**, range -0.57% to +1.08%.
+
+**RESULT: the family is UNCHANGED.**
+
+| arm | config | params | GMACs | Fix-C ms |
+|---|---|---|---|---|
+| S | `w16_b8` | 2.44M | 2.13 | 1.577 |
+| M | `w16_sidd` | 7.37M | 4.13 | 2.885 |
+| L | `w24_b28` | 9.68M | 9.05 | 3.328 |
+
+Latency span 2.69x (N-F: 2.67x). All invariants pass: params and MACs
+strictly increase S < M < L, measured latency increases across arms, MAC
+span 4.26x >= 2.5x, every arm under the 10M parameter ceiling.
+
+Worth stating plainly: this re-run was expected to be a formality and
+was, but the previous norm change (N-A -> N-F) **did** move M from
+`w24_b8` to `w16_sidd`, so 'small delta implies same family' is not a
+safe inference — it is a measurement.
