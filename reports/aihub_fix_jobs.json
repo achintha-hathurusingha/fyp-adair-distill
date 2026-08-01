@@ -1,0 +1,16 @@
+{
+  "jobs": {
+    "M_FixB": {
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\export\\fix_latency\\M_FixB.onnx",
+      "quantize": "jgd20vdr5"
+    },
+    "M_FixC8": {
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\export\\fix_latency\\M_FixC8.onnx",
+      "quantize": "jpxxm103p"
+    },
+    "M_NF": {
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\export\\fix_latency\\M_NF.onnx",
+      "quantize": "jp2ejmv4p"
+    }
+  }
+}
