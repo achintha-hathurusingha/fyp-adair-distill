@@ -533,6 +533,27 @@ and AffineClampNorm2d share parameter shapes, so this is a direct comparison):
 | **Fix-C clamp 8** | **17.49** | **1.048** |
 | Fix-C clamp 2 | 2.572 | 1.048 |
 
+### Measured on-device cost (Samsung Galaxy S24, INT8, M arm `w16_sidd`)
+
+| variant | latency | vs N-F | peak memory |
+|---|---|---|---|
+| N-F (affine at full-res) | **2.872 ms** | 1.00x | — |
+| **Fix-C — affine + Clip(+-8)** | **2.881 ms** | **1.00x** (+0.3%) | 99.2 MB |
+| Fix-B — LayerNorm2d at full-res | 4.728 ms | **1.65x** | 98.6 MB |
+
+**Fix-C is free; Fix-B costs 65%.** Restoring LayerNorm at full resolution gives
+back almost exactly what N-F was adopted to win (F1: normalisation cost is
+per-element, so full-resolution norms dominate). The clamp buys the same
+containment for +0.009 ms.
+
+The ONNX op counts predicted this and, unusually for this project, were right:
+Fix-C adds 8 `Clip` nodes and leaves `Div`/`Sqrt`/`ReduceMean` at exactly N-F's
+counts (136/64/128), whereas Fix-B reinstates the reductions. F3/F4 warn that op
+counts do not predict fused-kernel latency — that warning still stands, and is
+why this was measured rather than asserted. The N-F re-measurement (2.872 ms
+against 2.873 ms recorded previously, 0.03% apart) also serves as a
+reproducibility check on the whole AI Hub pipeline.
+
 **Fix-C (`affine_clamp`) at bound 8 matches Fix-A's containment while leaving
 healthy outputs unchanged**, because a clamp is inert until it engages, whereas
 restoring LayerNorm changes the function the weights were trained under. A clamp

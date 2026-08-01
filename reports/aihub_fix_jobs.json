@@ -23,7 +23,12 @@
     "M_NF": {
       "compile": "j5qvw7r7g",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\export\\fix_latency\\M_NF.onnx",
-      "quantize": "jp2ejmv4p"
+      "profile": "jpv7414mp",
+      "quantize": "jp2ejmv4p",
+      "results": {
+        "latency_ms": 2.872,
+        "peak_memory_mb": 98.1953125
+      }
     }
   }
 }
