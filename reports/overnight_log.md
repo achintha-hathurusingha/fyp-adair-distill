@@ -239,3 +239,30 @@ they would otherwise read as results for the batch-16 rerun.)
 === 18:52 UTC M-A finished exit=0 ===
 === 19:10 UTC M-F finished exit=0 ===
 M_SPOTCHECK_DONE
+
+## M SPOT-CHECK CONFIRMED — lock stands (09:01 local, 2026-08-01)
+
+`w16_sidd` (M), N-A vs N-F, 10k iterations, batch 16, single seed, identical
+everything else.
+
+| iter | M-A (N-A) | M-F (N-F) | delta |
+|---|---|---|---|
+| 2000 | 25.525 | 25.446 | -0.079 |
+| 4000 | 29.675 | 29.621 | -0.055 |
+| 6000 | 30.543 | 30.561 | +0.018 |
+| 8000 | 30.729 | 30.728 | -0.000 |
+| **10000** | **30.783** | **30.777** | **-0.006** |
+
+**-0.006 dB on M, against -0.005 dB on S.** Two configs 4x apart in parameters
+and structurally very different both put N-F under 0.01 dB. The early deficit is
+warmup transient that closes by it 6000 rather than a capacity gap, which is a
+stronger result than the endpoint alone.
+
+This was the one open item that could have invalidated a decision already made:
+`w16_sidd` became M *because* it carries the most full-resolution
+normalization, so an N-F quality cost would surface here first. It does not.
+
+M-F was killed three times by session restarts (2000 -> 6000 -> 10000) and
+resumed cleanly each time. Without the `RNG state must be a torch.ByteTensor`
+fix, none of those restarts would have been recoverable.
+
