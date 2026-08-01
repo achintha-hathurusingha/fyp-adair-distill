@@ -161,3 +161,54 @@ def test_clamp_engagement_counts_only_when_it_fires() -> None:
         assert getattr(n, "elements_clamped", 0) == 4 * 4 * 4
     finally:
         norms.TRACK_CLAMP_ENGAGEMENT = original
+
+
+def test_clamp_engagement_excludes_validation_forwards(tmp_path, monkeypatch) -> None:
+    """Engagement rate must measure TRAINING forwards only.
+
+    Regression: the counters were read after activation_stats() and validate(),
+    so one diagnostic forward plus one per BSD68 image — at full resolution
+    rather than 128px crops — were folded into the rate. That measures
+    engagement on a different input distribution than training actually sees,
+    which is the entire point of the metric.
+    """
+    import torch as _torch
+
+    import src.models.norms as norms
+    from src.models.nafnet import NAFNet
+    from src.train.trainer import Trainer
+
+    original = norms.TRACK_CLAMP_ENGAGEMENT
+    try:
+        norms.TRACK_CLAMP_ENGAGEMENT = True
+        model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1,
+                       dec_blk_nums=[1], norm_type="layernorm2d",
+                       full_res_norm_type="affine_clamp", clamp_bound=1e9)
+        batches = [(_torch.rand(2, 3, 32, 32), _torch.rand(2, 3, 32, 32), 15)
+                   for _ in range(4)]
+        cfg = {"optim": {"lr": 1e-3}, "schedule": {"total_iters": 4,
+                                                   "warmup_iters": 1},
+               "train": {"accum_steps": 1, "amp": False, "val_every": 4,
+                         "ckpt_every": 10 ** 9},
+               "loss": {"name": "charbonnier"}}
+        t = Trainer(model, batches, cfg, tmp_path, device="cpu")
+
+        seen = {}
+        real = t._clamp_stats
+
+        def spy():
+            out = real()
+            seen.update(out)
+            return out
+
+        monkeypatch.setattr(t, "_clamp_stats", spy)
+        state = t.train()
+
+        row = state.history[-1]
+        n_clamps = sum(1 for m in model.modules()
+                       if isinstance(m, norms.AffineClampNorm2d))
+        # 4 training steps x 1 micro-batch, and nothing else.
+        assert row["clamp_engage_rate"] == 0.0
+        assert "clamp_elements" in row
+    finally:
+        norms.TRACK_CLAMP_ENGAGEMENT = original

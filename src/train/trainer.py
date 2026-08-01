@@ -461,6 +461,14 @@ class Trainer:
                 self.state.iteration = it
 
                 if it % self.val_every == 0 or it == self.total_iters:
+                    # Read (and reset) clamp counters BEFORE any diagnostic or
+                    # validation forward pass. activation_stats runs one forward
+                    # and validate() runs one per BSD68 image, at full
+                    # resolution rather than 128px crops — counting those would
+                    # measure engagement on a different input distribution than
+                    # the one training actually sees, which is the whole point
+                    # of the metric.
+                    clamp_stats = self._clamp_stats()
                     acts = activation_stats(self.model, degraded[:1])
                     metrics = self.validate()
                     if not metrics:
@@ -479,7 +487,7 @@ class Trainer:
                         "clip_hits": clip_hits,
                         "clip_rate": clip_hits / max(1, steps_since),
                         "nonfinite_skips": nonfinite_skips,
-                        **self._clamp_stats(),
+                        **clamp_stats,
                         "peak_vram_gb": peak,
                         "elapsed_s": time.time() - t0,
                         **metrics,

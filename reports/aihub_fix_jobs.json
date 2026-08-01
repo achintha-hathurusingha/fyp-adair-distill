@@ -1,14 +1,27 @@
 {
   "jobs": {
     "M_FixB": {
+      "compile": "jpxxm1zlp",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\export\\fix_latency\\M_FixB.onnx",
-      "quantize": "jgd20vdr5"
+      "profile": "jgll7knmg",
+      "quantize": "jgd20vdr5",
+      "results": {
+        "latency_ms": 4.728,
+        "peak_memory_mb": 98.578125
+      }
     },
     "M_FixC8": {
+      "compile": "j5796d3ng",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\export\\fix_latency\\M_FixC8.onnx",
-      "quantize": "jpxxm103p"
+      "profile": "jp2ej70xp",
+      "quantize": "jpxxm103p",
+      "results": {
+        "latency_ms": 2.881,
+        "peak_memory_mb": 99.2109375
+      }
     },
     "M_NF": {
+      "compile": "j5qvw7r7g",
       "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\export\\fix_latency\\M_NF.onnx",
       "quantize": "jp2ejmv4p"
     }
