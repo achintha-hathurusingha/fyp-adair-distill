@@ -171,6 +171,12 @@ class Trainer:
         # Micro-batches accumulated per optimizer step. Effective batch is
         # data.batch_size * accum_steps; see findings F8.
         self.accum_steps = max(1, int(tr.get("accum_steps", 1)))
+        # Per-step diagnostic trace. val_every (5000) is far too coarse to see a
+        # divergence onset: B0 died between two validation points having logged
+        # only "clip 1/5000", which says a single step spiked to 6.5e7 but not
+        # when, nor what the loss was doing around it. 0 disables.
+        self.trace_every = int(tr.get("trace_every", 0))
+        self._trace_fh = None
         self.amp = tr.get("amp", True)
         self.val_every = tr.get("val_every", 2_000)
         self.ckpt_every = tr.get("ckpt_every", 2_000)
@@ -186,6 +192,21 @@ class Trainer:
         progress = (it - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
         cos = 0.5 * (1 + math.cos(math.pi * min(1.0, progress)))
         return self.min_lr + (self.base_lr - self.min_lr) * cos
+
+    def _trace(self, it: int, lr: float, loss: float, gn: float) -> None:
+        """Append one CSV row of per-step diagnostics.
+
+        Flushed every row: this exists to survive the crash it is diagnosing, so
+        buffered output would defeat the purpose.
+        """
+        if self._trace_fh is None:
+            path = self.run_dir / "trace.csv"
+            new = not path.exists()
+            self._trace_fh = path.open("a", encoding="utf-8")
+            if new:
+                self._trace_fh.write("iteration,lr,loss,grad_norm\n")
+        self._trace_fh.write(f"{it},{lr:.8g},{loss:.8g},{gn:.8g}\n")
+        self._trace_fh.flush()
 
     def save_checkpoint(self, path: Path) -> None:
         """Save everything needed for an exact resume."""
@@ -318,6 +339,8 @@ class Trainer:
                 # --- one optimizer step, on the full effective batch ---
                 gn = grad_norm(self.model)
                 max_gnorm = max(max_gnorm, gn)
+                if self.trace_every and it % self.trace_every == 0:
+                    self._trace(it, lr, float(loss.detach()), gn)
 
                 # Non-finite gradients must never reach the weights. Clipping is
                 # NOT a guard against them: clip_grad_norm_ computes

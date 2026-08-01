@@ -110,3 +110,41 @@ def test_residual_weight_decay_absent_keeps_single_group(tmp_path) -> None:
     model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
     t = Trainer(model, [], _cfg(), tmp_path, device="cpu")
     assert len(t.optimizer.param_groups) == 1
+
+
+def test_trace_writes_every_step_and_flushes(tmp_path) -> None:
+    """The trace must survive the crash it exists to diagnose.
+
+    B0 died between two validation points having logged only "clip 1/5000" —
+    enough to know one step spiked to 6.5e7, not enough to know when, or what
+    the loss was doing around it. So the trace is per-step and flushed per row.
+    """
+    import csv
+
+    torch.manual_seed(0)
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    batches = [(torch.rand(2, 3, 32, 32), torch.rand(2, 3, 32, 32), 15)
+               for _ in range(6)]
+    cfg = _cfg()
+    cfg["schedule"]["total_iters"] = 6
+    cfg["train"]["val_every"] = 10 ** 9
+    cfg["train"]["trace_every"] = 1
+    Trainer(model, batches, cfg, tmp_path, device="cpu").train()
+
+    path = tmp_path / "trace.csv"
+    assert path.exists(), "no trace.csv written"
+    rows = list(csv.DictReader(path.open()))
+    assert len(rows) == 6, f"expected one row per step, got {len(rows)}"
+    assert list(rows[0]) == ["iteration", "lr", "loss", "grad_norm"]
+    for r in rows:
+        assert float(r["grad_norm"]) >= 0.0
+        assert float(r["loss"]) == float(r["loss"])      # not NaN
+
+
+def test_trace_disabled_by_default(tmp_path) -> None:
+    torch.manual_seed(0)
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    batches = [(torch.rand(2, 3, 32, 32), torch.rand(2, 3, 32, 32), 15)
+               for _ in range(4)]
+    Trainer(model, batches, _cfg(), tmp_path, device="cpu").train()
+    assert not (tmp_path / "trace.csv").exists()
