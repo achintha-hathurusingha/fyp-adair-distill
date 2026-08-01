@@ -1,4 +1,21 @@
-# B0 baseline — the reference every distillation delta is measured against.
+# Q-A CONTROL for the B0 divergence investigation.
+#
+# B0 (N-F) diverged deterministically at iteration 21967 / 25582 with activation
+# scale growing fastest in act_enc3 — a stage that STILL HAS LayerNorm under
+# N-F — while the full-resolution affine stage stayed flat. That is the wrong
+# stage exploding for "N-F is just slow affine-everywhere", and suggests the
+# accumulated residual stream is growing regardless of per-block normalization.
+#
+# This arm is IDENTICAL to b0_baseline.yaml except that it keeps LayerNorm2d at
+# every stage. It answers one question:
+#
+#   Does full normalization prevent the growth, or merely delay it?
+#
+#   same doubling signature, even later  -> NAFNet pre-norm depth problem;
+#                                           architecture lock stands, fix the recipe
+#   flat well past 25582                 -> N-F implicated; revisit the lock
+#
+# Judge by the maxgn TREND, not by step count reached.
 #
 # NAFNet on the LOCKED architecture, trained on ground truth only with a
 # reconstruction loss. **No teacher involvement of any kind.** If this file ever
@@ -12,7 +29,7 @@
 # STATUS: staged, smoke-tested, NOT LAUNCHED. A 3-seed run is a multi-day
 # commitment and waits on review of the architecture lock.
 
-experiment: b0_baseline
+experiment: b0_qa_control
 model: configs/model/nafnet_locked.yaml
 
 # --- architecture (mirrors nafnet_locked.yaml M arm; kept explicit so the run
@@ -23,7 +40,8 @@ arch:
   middle_blk_num: 12
   dec_blk_nums: [2, 2, 2, 2]
   norm_type: layernorm2d
-  full_res_norm_type: affine
+  # NO full_res_norm_type: LayerNorm2d everywhere. This is the ONLY difference
+  # from b0_baseline.yaml.
 
 data:
   # AdaIR's own training patch size (options.py:15). 256 exceeds 6 GB at these
@@ -46,18 +64,13 @@ optim:
   lr: 1.0e-3
   weight_decay: 1.0e-4
   betas: [0.9, 0.9]
-  # RETRY after the 2026-08-01 divergence. 8.0 was chosen as "insurance" against
-  # a rare tail event; it was the wrong threshold for the actual failure. B0 died
-  # deterministically at iteration 21967 (and 25582 on resume) with max gradient
-  # norm reaching 6.5e7, and the 8.0 clip fired ONCE in 5000 steps -- far too
-  # late. The pre-divergence trend was a steady doubling every ~5k steps
-  # (0.708 -> 1.439 -> 2.803), which 8.0 would not engage until it was already
-  # unrecoverable. 1.0 engages while the growth is still small.
-  #
-  # NOT yet validated. Judge the retry by whether the maxgn curve FLATTENS, not
-  # by whether it reaches 300k -- the Q-E ladder showed that mitigations can
-  # postpone this failure without preventing it.
-  grad_clip: 1.0
+  # Loose clip as insurance, NOT a fix for a known problem. w16_sidd showed
+  # spikes to 1.24-1.62 over 10k iterations with no clipping and converged
+  # cleanly; B0 runs 300k, so this bounds a rare tail event that 10k could not
+  # rule out. Deliberately 8.0, far above observed spikes, so it should almost
+  # never fire -- NOT the 1.0 from the Q-E ladder, which targeted a different
+  # failure mode (gradual drift, not spikes) and would be needlessly tight here.
+  grad_clip: 8.0
 
 schedule:
   name: cosine

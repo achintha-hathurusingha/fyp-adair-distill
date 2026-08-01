@@ -52,6 +52,12 @@ ARMS: dict[str, dict] = {
     "B0": {"norm": {"norm_type": "layernorm2d", "full_res_norm_type": "affine"},
            "config": "configs/train/b0_baseline.yaml",
            "desc": "B0 baseline: locked N-F on w16_sidd, GT only, no teacher"},
+    # Q-A control for the B0 divergence: identical to B0 in every respect except
+    # LayerNorm2d at EVERY stage. Distinguishes "N-F caused the growth" from
+    # "NAFNet at this depth grows regardless of per-block normalization".
+    "B0-QA": {"norm": {"norm_type": "layernorm2d"},
+              "config": "configs/train/b0_qa_control.yaml",
+              "desc": "Q-A control: full LayerNorm2d on w16_sidd, B0 schedule"},
 }
 
 #: w16_b8 — the config on which every norm variant is already profiled (arm S).
@@ -66,7 +72,8 @@ W16_SIDD = dict(width=16, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12,
                 dec_blk_nums=[2, 2, 2, 2])
 
 #: Arms that override the default geometry.
-ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD}
+ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
+                "B0-QA": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:

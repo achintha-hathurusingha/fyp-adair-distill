@@ -131,10 +131,33 @@ class Trainer:
         self.log = get_logger("train", run_dir=run_dir)
 
         opt_cfg = cfg.get("optim", {})
+        wd = opt_cfg.get("weight_decay", 1e-4)
+        # The residual scales (NAFBlock.beta/gamma) already get `wd` like every
+        # other parameter. `residual_weight_decay` splits them into their own
+        # group so they can be decayed HARDER — they are the parameters that
+        # gate how much each block adds to the residual stream, so they are the
+        # direct lever on F6's growth mechanism. Opt-in: absent, behaviour is
+        # byte-identical to a single group.
+        res_wd = opt_cfg.get("residual_weight_decay")
+        if res_wd is None:
+            params = self.model.parameters()
+        else:
+            residual, rest = [], []
+            for name, p in self.model.named_parameters():
+                (residual if name.endswith((".beta", ".gamma")) else rest).append(p)
+            if not residual:
+                raise ValueError(
+                    "residual_weight_decay set but no .beta/.gamma parameters "
+                    "found — the model does not use residual scaling.")
+            params = [{"params": rest, "weight_decay": wd},
+                      {"params": residual, "weight_decay": res_wd}]
+            self.log.info(
+                f"residual scales in own group: {len(residual)} params, "
+                f"weight_decay {res_wd} (rest: {wd})")
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
+            params,
             lr=opt_cfg.get("lr", 1e-3),
-            weight_decay=opt_cfg.get("weight_decay", 1e-4),
+            weight_decay=wd,
             betas=tuple(opt_cfg.get("betas", (0.9, 0.9))))
         self.grad_clip = opt_cfg.get("grad_clip")
 
@@ -240,6 +263,10 @@ class Trainer:
         # on. Tracking the max between logs removes that blind spot.
         max_gnorm = 0.0
         clip_hits = 0
+        # Optimizer steps dropped because the gradient was Inf/NaN. Counted and
+        # logged rather than silently swallowed: a run that only survives by
+        # skipping steps is not healthy, it is hiding.
+        nonfinite_skips = 0
         # Anchors the clip-hit rate to the interval actually covered, which is
         # shorter than val_every on the first log after a resume.
         last_log_it = it
@@ -291,14 +318,33 @@ class Trainer:
                 # --- one optimizer step, on the full effective batch ---
                 gn = grad_norm(self.model)
                 max_gnorm = max(max_gnorm, gn)
-                if self.grad_clip:
-                    if gn > self.grad_clip:
-                        clip_hits += 1
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(),
-                                                   self.grad_clip)
-                self.optimizer.step()
-                self.optimizer.zero_grad(set_to_none=True)
-                self.ema.update(self.model)
+
+                # Non-finite gradients must never reach the weights. Clipping is
+                # NOT a guard against them: clip_grad_norm_ computes
+                # clip_coef = max_norm / (total_norm + eps), which for an Inf
+                # norm is ~0, and inf * 0 = nan — so clipping actively CONVERTS
+                # an Inf gradient into NaN weights. Skip the step instead; the
+                # gradients are zeroed below, so the batch is simply dropped.
+                # Falls through to the normal iteration accounting below rather
+                # than `continue`-ing: a skipped step is still a step, and must
+                # still validate, log and checkpoint. Otherwise a run in which
+                # every step is skipped would produce no diagnostics at all —
+                # exactly when they are most needed.
+                if not torch.isfinite(torch.tensor(gn)):
+                    nonfinite_skips += 1
+                    self.log.warning(
+                        f"non-finite gradient norm ({gn}) at optimizer step "
+                        f"{it}; skipping step (total skipped: {nonfinite_skips})")
+                    self.optimizer.zero_grad(set_to_none=True)
+                else:
+                    if self.grad_clip:
+                        if gn > self.grad_clip:
+                            clip_hits += 1
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                                       self.grad_clip)
+                    self.optimizer.step()
+                    self.optimizer.zero_grad(set_to_none=True)
+                    self.ema.update(self.model)
                 micro = 0
 
                 it += 1
@@ -322,6 +368,7 @@ class Trainer:
                         "max_grad_norm": max_gnorm,
                         "clip_hits": clip_hits,
                         "clip_rate": clip_hits / max(1, steps_since),
+                        "nonfinite_skips": nonfinite_skips,
                         "peak_vram_gb": peak,
                         "elapsed_s": time.time() - t0,
                         **metrics,
@@ -333,9 +380,11 @@ class Trainer:
                         f"ssim {metrics['ssim']:.4f}  gnorm {gn:.3f}  "
                         f"maxgn {max_gnorm:.3f}  "
                         f"clip {clip_hits}/{steps_since} ({row['clip_rate']:.1%})  "
+                        f"skip {nonfinite_skips}  "
                         f"vram {peak:.2f}GB")
                     loss_accum, n_accum = 0.0, 0
                     max_gnorm, clip_hits = 0.0, 0
+                    nonfinite_skips = 0
                     last_log_it = it
                     self._dump_history()
 
