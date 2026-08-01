@@ -563,6 +563,42 @@ evade. Latency on-device is still to be measured — `Clip` is a first-class
 quantized Hexagon op and usually fuses, but that is a claim to verify, not
 assume.
 
+### Where the gradient mass actually sits — and why no second fix is needed
+
+A one-shot AGC-style probe (per-stage gradient-norm / parameter-norm ratio, the
+quantity AGC clips on) at the spike state:
+
+| stage | g/p ratio, healthy sample | g/p ratio, pathological sample |
+|---|---|---|
+| intro | 5.1e-3 | **9.1e6** |
+| encoders.0-3 | 1.3e-4 … 1.5e-5 | 2.4e5 … 4.0e4 |
+| **middle_blks** | 3.4e-6 | **1.4e4** |
+| decoders.0-2 | 2.5e-5 … 1.6e-4 | 1.2e2 … 2.9e3 |
+| decoders.3 | 2.9e-4 | 2.3e4 |
+| ending | 3.7e-2 | 1.3e4 |
+
+**Gradient mass concentrates at `intro` and the encoders — the middle stage has
+a LOWER ratio than every encoder stage.** The middle stage's elevated
+*activations* (mean 23.5) do not produce concentrated *gradients*.
+
+That is simply what backpropagation does with a catastrophic output error: it
+accumulates travelling backwards, so the earliest layers see the largest
+gradients. The concentration is therefore a **symptom of the `dec3` forward
+explosion, not an independent middle-stage pathology** — and a per-layer scheme
+like AGC would clip hardest at `intro`, the point furthest from the cause.
+
+**Consequence: Fix-C alone is sufficient.** It bounds the explosion at its
+origin. Adaptive Gradient Clipping was considered as a complementary
+network-wide fix and is **parked on this evidence**, not on preference.
+
+### Monitoring the bound's headroom
+
+Engagement *rate* cannot distinguish "catches a stable 1264-magnitude event
+occasionally" from "catches an increasingly large event occasionally" — both
+give the same rate. `AffineClampNorm2d` therefore also records the maximum
+**pre-clamp** magnitude per interval (logged as `premax`), so a bound that is
+quietly running out of headroom over a long run is visible rather than inferred.
+
 ### Process lessons
 
 **A per-step trace that logs only the last micro-batch is blind to the anomaly
