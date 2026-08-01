@@ -27,6 +27,7 @@ from src.data.datasets import build_dataset
 from src.eval.evaluate import evaluate
 from src.eval.metrics import ADAIR_DEFAULT
 from src.losses.reconstruction import build_loss
+from src.models.norms import AffineClampNorm2d
 from src.utils.logging import get_logger
 from src.utils.seeding import capture_rng_state, restore_rng_state, seed_everything
 
@@ -198,6 +199,24 @@ class Trainer:
         progress = (it - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
         cos = 0.5 * (1 + math.cos(math.pi * min(1.0, progress)))
         return self.min_lr + (self.base_lr - self.min_lr) * cos
+
+    def _clamp_stats(self) -> dict[str, float]:
+        """Fraction of forwards in which a clamp actually engaged.
+
+        Rare engagement means the bound is insurance. Frequent engagement means
+        it is silently reshaping normal training, and the bound is too tight —
+        which would trade a divergence for a quality regression.
+        """
+        mods = [m for m in self.model.modules()
+                if isinstance(m, AffineClampNorm2d)]
+        fwd = sum(getattr(m, "forwards", 0) for m in mods)
+        if not fwd:
+            return {}
+        eng = sum(getattr(m, "engaged", 0) for m in mods)
+        els = sum(getattr(m, "elements_clamped", 0) for m in mods)
+        for m in mods:          # reset each interval
+            m.forwards = m.engaged = m.elements_clamped = 0
+        return {"clamp_engage_rate": eng / fwd, "clamp_elements": els}
 
     def _trace(self, it: int, lr: float, loss: float, gn: float) -> None:
         """Append one CSV row of per-step diagnostics.
@@ -460,6 +479,7 @@ class Trainer:
                         "clip_hits": clip_hits,
                         "clip_rate": clip_hits / max(1, steps_since),
                         "nonfinite_skips": nonfinite_skips,
+                        **self._clamp_stats(),
                         "peak_vram_gb": peak,
                         "elapsed_s": time.time() - t0,
                         **metrics,
@@ -472,7 +492,9 @@ class Trainer:
                         f"maxgn {max_gnorm:.3f}  "
                         f"clip {clip_hits}/{steps_since} ({row['clip_rate']:.1%})  "
                         f"skip {nonfinite_skips}  "
-                        f"vram {peak:.2f}GB")
+                        + (f"clampeng {row['clamp_engage_rate']:.2%}  "
+                           if "clamp_engage_rate" in row else "")
+                        + f"vram {peak:.2f}GB")
                     loss_accum, n_accum = 0.0, 0
                     max_gnorm, clip_hits = 0.0, 0
                     nonfinite_skips = 0

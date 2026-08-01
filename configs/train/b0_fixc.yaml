@@ -1,0 +1,102 @@
+# B0 + Fix-C — the INTEGRATION TEST for the F9 divergence fix.
+#
+# Identical to b0_baseline.yaml except the full-resolution stages use
+# `affine_clamp` (bound 8.0) instead of plain affine.
+#
+# Forward-pass containment on the captured spike is necessary but NOT
+# sufficient: it shows the clamp bounds that one input at that one weight
+# state, not that training stays healthy through the window where the run
+# actually died. This config resumes the pre-spike checkpoint and runs well
+# past step 28654 (the second divergence point), watching:
+#
+#   * maxgn and clip-hit rate through the danger zone
+#   * loss/PSNR continuing to improve, not merely "not crashing"
+#   * how often the clamp ENGAGES -- rare is by design; frequent would mean
+#     bound 8.0 is too tight and is quietly distorting normal training
+#
+# Do not lock Fix-C on the stress suite alone.
+#
+# NAFNet on the LOCKED architecture, trained on ground truth only with a
+# reconstruction loss. **No teacher involvement of any kind.** If this file ever
+# grows a distillation term, B0 stops being a baseline.
+#
+# Architecture is fixed by Task 1.5b (see configs/model/nafnet_locked.yaml,
+# reports/norm_quality.md, reports/family_reselection.md):
+#   norm    N-F  — LayerNorm2d deeper, affine at full resolution
+#   M arm   w16_sidd, 7.37M params, 4.13 GMACs, 2.873 ms INT8 on S24
+#
+# STATUS: staged, smoke-tested, NOT LAUNCHED. A 3-seed run is a multi-day
+# commitment and waits on review of the architecture lock.
+
+experiment: b0_fixc
+model: configs/model/nafnet_locked.yaml
+
+# --- architecture (mirrors nafnet_locked.yaml M arm; kept explicit so the run
+# --- directory records exactly what was trained) ---
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+
+data:
+  # AdaIR's own training patch size (options.py:15). 256 exceeds 6 GB at these
+  # batch sizes on the development GPU; see reports/overnight_log.md.
+  patch_size: 128
+  batch_size: 16          # MICRO-batch. w16_sidd peaks at 2.11 GB; 32 OOMs on 6 GB.
+                          # Effective batch is 32 via accum_steps below (F8).
+  sigmas: [15, 25, 50]
+  mixed_task: true        # balance degradation types WITHIN each batch
+  num_workers: 6
+  # PER WORKER decoded-image cache. Workers are persistent and each holds its
+  # own copy, so the resident total is num_workers x this. Unbounded, it
+  # converges on 6 x 3.07 GB = 18.4 GB against 15.7 GB of RAM -- the machine
+  # pages, the GPU starves, and the run dies hours in rather than failing fast.
+  # 0.75 x 6 = 4.5 GB resident, which leaves headroom for the trainer and OS.
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  # RETRY after the 2026-08-01 divergence. 8.0 was chosen as "insurance" against
+  # a rare tail event; it was the wrong threshold for the actual failure. B0 died
+  # deterministically at iteration 21967 (and 25582 on resume) with max gradient
+  # norm reaching 6.5e7, and the 8.0 clip fired ONCE in 5000 steps -- far too
+  # late. The pre-divergence trend was a steady doubling every ~5k steps
+  # (0.708 -> 1.439 -> 2.803), which 8.0 would not engage until it was already
+  # unrecoverable. 1.0 engages while the growth is still small.
+  #
+  # NOT yet validated. Judge the retry by whether the maxgn curve FLATTENS, not
+  # by whether it reaches 300k -- the Q-E ladder showed that mitigations can
+  # postpone this failure without preventing it.
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 300000
+  warmup_iters: 5000
+  min_lr: 1.0e-6
+
+train:
+  # 16 x 2 = effective batch 32, matching the S-arm ablation (findings F8).
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true               # bfloat16
+  val_every: 5000
+  ckpt_every: 5000
+  seeds: [0, 1, 2]        # three seeds; mean +/- std is the reported figure
+
+loss:
+  name: charbonnier       # reconstruction ONLY — Phase 01 admits nothing else
+  eps: 1.0e-3
+
+eval:
+  # Metrics go through the locked harness. Conventions are G3-validated and
+  # must not be changed (src/eval/metrics.py :: ADAIR_DEFAULT).
+  harness: src/eval/evaluate.py
+  test_sets: [bsd68]

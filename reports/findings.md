@@ -563,12 +563,56 @@ screen flagged `std < 0.01` and saturation `> 50%`. Sample 12 has std 0.084 and
 10.65% zeros, so it passed as clean and was reported as such. The batch was
 declared normal twice before per-sample forward losses found it.
 
-**Synthetic adversarial inputs did not reproduce the failure.** All-black,
-all-white, near-zero-variance, extreme-noise and the three lowest-variance REAL
-crops in the training set (std down to 0.001) all pass cleanly under N-F, max
-output 1.589. Only the genuine sample triggers it. A stress suite built from
-imagined worst cases would have certified N-F as safe — which is why
-`scripts/stress_test_norm.py` always includes the captured spike batch.
+**The default-argument trap.** `AffineClampNorm2d` took
+`bound: float = AFFINE_CLAMP_BOUND`. Python evaluates default arguments **once,
+at `def` time**, so reassigning the module constant afterwards had no effect —
+a sweep over bounds 64/16/8/4/2 returned an identical 667.5 at every setting.
+Read as "the clamp cannot contain this", it would have rejected the fix that
+actually works. Any value that is meant to be overridable must be read at call
+or construction time, never bound as a default. This generalises: mutable and
+module-level defaults are captured at definition, not at use.
+
+### The trigger cannot be characterised from input statistics — which is why the fix must be structural
+
+Against the **exact spike-state weights**, none of the deliberately worst-case
+inputs reproduced the failure:
+
+| input | max\|out\| under N-F |
+|---|---|
+| all-black | 0.031 |
+| all-white | 1.047 |
+| near-zero-variance (std 0.002) | 0.049 |
+| dark, low-variance (mean 0.055, std 0.084) | 0.049 |
+| extreme / clipped noise | 1.374 |
+| half-saturated | 1.058 |
+| real crop, std **0.001** | 0.026 |
+| real crop, std 0.006 | 0.025 |
+| **the actual sample 12** | **705,100** |
+
+Sample 12 is *not* the most extreme input by any statistic measured — several
+synthetic and real crops are far more degenerate and pass cleanly. Whatever
+distinguishes it is a property of the interaction between that specific image
+content and that specific weight state, not a summary statistic of the input.
+
+**Three consequences, and they drive the fix decision:**
+
+1. **Input-property filtering cannot be relied on as a defence.** There is no
+   threshold on mean, variance, saturation or dynamic range that would have
+   caught this sample without also rejecting large numbers of healthy ones.
+   Data filtering is therefore admissible only as supplementary insurance,
+   never as the primary fix.
+2. **Other trigger classes cannot be ruled out.** One trigger was found because
+   it happened to fire during a 300k run. The absence of a characterisation
+   means there is no basis for claiming it is the only one — a bright or
+   high-contrast sample could hit the same unprotected stage.
+3. **Therefore the fix must close the mechanism, not the instance.** Bounding
+   `dec3`'s magnitude structurally is robust to triggers nobody has enumerated;
+   filtering the one known sample is not.
+
+A stress suite built only from imagined worst cases would have certified N-F as
+safe. `scripts/stress_test_norm.py` therefore always includes the captured spike
+batch, and its synthetic cases are treated as a smoke test rather than as
+evidence of safety.
 
 ### Exposure window — a general caution about the 1.5b protocol
 

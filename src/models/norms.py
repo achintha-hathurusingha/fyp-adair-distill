@@ -34,6 +34,14 @@ NORM_TYPES = ("layernorm2d", "layernorm2d_rsqrt", "affine", "affine_clamp",
 #: only engages on the failure mode.
 AFFINE_CLAMP_BOUND = 64.0
 
+#: When True, :class:`AffineClampNorm2d` counts how often it actually engages.
+#: Off by default — this costs a comparison and a sync-free reduction per
+#: forward, which is fine for a diagnostic run and not for production. A clamp
+#: that engages constantly is not insurance, it is an undocumented activation
+#: function distorting normal training, so this is the number that decides
+#: whether a chosen bound is defensible.
+TRACK_CLAMP_ENGAGEMENT = False
+
 
 class LayerNorm2d(nn.Module):
     """N-A (reference): channel-wise LayerNorm for NCHW tensors.
@@ -157,6 +165,15 @@ class AffineClampNorm2d(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
+        if TRACK_CLAMP_ENGAGEMENT:
+            # Plain attributes, deliberately NOT buffers: a buffer would enter
+            # state_dict and break weight compatibility with the affine and
+            # layernorm variants, which is what makes the fix comparison possible.
+            self.forwards = getattr(self, "forwards", 0) + 1
+            over = int((x.abs() > self.bound).sum())
+            if over:
+                self.engaged = getattr(self, "engaged", 0) + 1
+                self.elements_clamped = getattr(self, "elements_clamped", 0) + over
         return torch.clamp(x, -self.bound, self.bound)
 
 
@@ -174,13 +191,16 @@ class IdentityNorm2d(nn.Module):
         return x
 
 
-def build_norm(norm_type: str, channels: int, eps: float = 1e-6) -> nn.Module:
+def build_norm(norm_type: str, channels: int, eps: float = 1e-6,
+               clamp_bound: float | None = None) -> nn.Module:
     """Construct a normalisation module by name.
 
     Args:
         norm_type: one of :data:`NORM_TYPES`.
         channels: channel count of the tensor being normalised.
         eps: numerical epsilon (ignored by variants without statistics).
+        clamp_bound: magnitude bound for ``affine_clamp``; ``None`` uses
+            :data:`AFFINE_CLAMP_BOUND`. Ignored by other variants.
 
     Raises:
         ValueError: on an unknown ``norm_type`` — never silently defaults.
@@ -192,7 +212,7 @@ def build_norm(norm_type: str, channels: int, eps: float = 1e-6) -> nn.Module:
     if norm_type == "affine":
         return AffineNorm2d(channels)
     if norm_type == "affine_clamp":
-        return AffineClampNorm2d(channels)
+        return AffineClampNorm2d(channels, bound=clamp_bound)
     if norm_type == "identity":
         return IdentityNorm2d(channels)
     if norm_type == "batchnorm":

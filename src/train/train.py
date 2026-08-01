@@ -55,6 +55,13 @@ ARMS: dict[str, dict] = {
     # Q-A control for the B0 divergence: identical to B0 in every respect except
     # LayerNorm2d at EVERY stage. Distinguishes "N-F caused the growth" from
     # "NAFNet at this depth grows regardless of per-block normalization".
+    # Fix-C integration test: B0 with a magnitude clamp at the full-resolution
+    # stages. See findings F9.
+    "B0-FIXC": {"norm": {"norm_type": "layernorm2d",
+                         "full_res_norm_type": "affine_clamp",
+                         "clamp_bound": 8.0},
+                "config": "configs/train/b0_fixc.yaml",
+                "desc": "B0 + Fix-C: affine_clamp(8.0) at full resolution"},
     "B0-QA": {"norm": {"norm_type": "layernorm2d"},
               "config": "configs/train/b0_qa_control.yaml",
               "desc": "Q-A control: full LayerNorm2d on w16_sidd, B0 schedule"},
@@ -73,7 +80,7 @@ W16_SIDD = dict(width=16, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12,
 
 #: Arms that override the default geometry.
 ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
-                "B0-QA": W16_SIDD}
+                "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:

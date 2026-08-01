@@ -120,3 +120,44 @@ def test_clamp_bound_is_read_at_construction_not_import() -> None:
         norms.AFFINE_CLAMP_BOUND = original
 
     assert norms.build_norm("affine_clamp", 4).bound == original
+
+
+def test_clamp_engagement_tracking_is_off_by_default_and_stays_out_of_state_dict() -> None:
+    """Tracking must be opt-in, and must not change weight compatibility.
+
+    The whole fix comparison rests on affine / affine_clamp / layernorm2d having
+    identical state_dict shapes, so spike-state weights load into each. A buffer
+    for the counters would break that.
+    """
+    import torch as _torch
+
+    import src.models.norms as norms
+
+    n = norms.build_norm("affine_clamp", 4, clamp_bound=1.0)
+    n(_torch.rand(1, 4, 4, 4) * 100)
+    assert not hasattr(n, "engaged"), "tracking ran while disabled"
+    assert list(n.state_dict()) == ["weight", "bias"], list(n.state_dict())
+
+    ln = norms.build_norm("layernorm2d", 4)
+    af = norms.build_norm("affine", 4)
+    shapes = lambda m: {k: tuple(v.shape) for k, v in m.state_dict().items()}
+    assert shapes(n) == shapes(ln) == shapes(af)
+
+
+def test_clamp_engagement_counts_only_when_it_fires() -> None:
+    import torch as _torch
+
+    import src.models.norms as norms
+
+    original = norms.TRACK_CLAMP_ENGAGEMENT
+    try:
+        norms.TRACK_CLAMP_ENGAGEMENT = True
+        n = norms.build_norm("affine_clamp", 4, clamp_bound=1.0)
+        n(_torch.full((1, 4, 4, 4), 0.5))          # under the bound
+        assert getattr(n, "forwards", 0) == 1
+        assert getattr(n, "engaged", 0) == 0, "counted an engagement that did not happen"
+        n(_torch.full((1, 4, 4, 4), 50.0))         # over the bound
+        assert getattr(n, "engaged", 0) == 1
+        assert getattr(n, "elements_clamped", 0) == 4 * 4 * 4
+    finally:
+        norms.TRACK_CLAMP_ENGAGEMENT = original
