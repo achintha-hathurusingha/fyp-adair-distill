@@ -214,9 +214,12 @@ class Trainer:
             return {}
         eng = sum(getattr(m, "engaged", 0) for m in mods)
         els = sum(getattr(m, "elements_clamped", 0) for m in mods)
+        mag = max((getattr(m, "max_preclamp", 0.0) for m in mods), default=0.0)
         for m in mods:          # reset each interval
             m.forwards = m.engaged = m.elements_clamped = 0
-        return {"clamp_engage_rate": eng / fwd, "clamp_elements": els}
+            m.max_preclamp = 0.0
+        return {"clamp_engage_rate": eng / fwd, "clamp_elements": els,
+                "clamp_max_preclamp": mag}
 
     def _trace(self, it: int, lr: float, loss: float, gn: float) -> None:
         """Append one CSV row of per-step diagnostics.
@@ -500,7 +503,8 @@ class Trainer:
                         f"maxgn {max_gnorm:.3f}  "
                         f"clip {clip_hits}/{steps_since} ({row['clip_rate']:.1%})  "
                         f"skip {nonfinite_skips}  "
-                        + (f"clampeng {row['clamp_engage_rate']:.2%}  "
+                        + (f"clampeng {row['clamp_engage_rate']:.2%} "
+                           f"premax {row['clamp_max_preclamp']:.4g}  "
                            if "clamp_engage_rate" in row else "")
                         + f"vram {peak:.2f}GB")
                     loss_accum, n_accum = 0.0, 0

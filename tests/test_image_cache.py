@@ -212,3 +212,29 @@ def test_clamp_engagement_excludes_validation_forwards(tmp_path, monkeypatch) ->
         assert "clamp_elements" in row
     finally:
         norms.TRACK_CLAMP_ENGAGEMENT = original
+
+
+def test_preclamp_magnitude_is_tracked_and_reset_per_interval() -> None:
+    """Pre-clamp magnitude, not just fire/no-fire.
+
+    Engagement rate cannot distinguish a stable heavy tail from a growing one:
+    "catches a 1264-magnitude event occasionally" and "catches an increasingly
+    large event occasionally" produce the same rate. The magnitude is the signal
+    that says whether the bound still has headroom.
+    """
+    import torch as _torch
+
+    import src.models.norms as norms
+
+    original = norms.TRACK_CLAMP_ENGAGEMENT
+    try:
+        norms.TRACK_CLAMP_ENGAGEMENT = True
+        n = norms.build_norm("affine_clamp", 4, clamp_bound=1.0)
+        n(_torch.full((1, 4, 2, 2), 5.0))
+        assert n.max_preclamp == 5.0
+        n(_torch.full((1, 4, 2, 2), 3.0))
+        assert n.max_preclamp == 5.0, "must keep the interval MAX, not the last"
+        n(_torch.full((1, 4, 2, 2), 900.0))
+        assert n.max_preclamp == 900.0
+    finally:
+        norms.TRACK_CLAMP_ENGAGEMENT = original

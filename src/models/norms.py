@@ -170,6 +170,14 @@ class AffineClampNorm2d(nn.Module):
             # state_dict and break weight compatibility with the affine and
             # layernorm variants, which is what makes the fix comparison possible.
             self.forwards = getattr(self, "forwards", 0) + 1
+            mag = float(x.abs().max())
+            # Track the PRE-clamp magnitude, not just fire/no-fire. Engagement
+            # count cannot distinguish "catches a stable 1264-magnitude event
+            # occasionally" from "catches an increasingly large event
+            # occasionally" — both give the same rate. The magnitude is what
+            # says whether the bound has headroom.
+            if mag > getattr(self, "max_preclamp", 0.0):
+                self.max_preclamp = mag
             over = int((x.abs() > self.bound).sum())
             if over:
                 self.engaged = getattr(self, "engaged", 0) + 1
