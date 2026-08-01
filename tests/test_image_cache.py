@@ -95,3 +95,28 @@ def test_nonpositive_budget_raises(image_root) -> None:
     """No silent fallback to unbounded."""
     with pytest.raises(ValueError, match="must be positive"):
         _ds(image_root, 0.0)
+
+
+def test_clamp_bound_is_read_at_construction_not_import() -> None:
+    """Overriding AFFINE_CLAMP_BOUND must actually change the bound.
+
+    Regression: the bound was a default argument (`bound=AFFINE_CLAMP_BOUND`),
+    which Python binds once at def time. Reassigning the module constant had no
+    effect, so a sweep over bounds silently returned identical results at every
+    setting.
+    """
+    import torch as _torch
+
+    import src.models.norms as norms
+
+    original = norms.AFFINE_CLAMP_BOUND
+    try:
+        norms.AFFINE_CLAMP_BOUND = 2.0
+        n = norms.build_norm("affine_clamp", 4)
+        assert n.bound == 2.0, f"bound is {n.bound}, expected the override 2.0"
+        out = n(_torch.full((1, 4, 2, 2), 1e6))
+        assert float(out.abs().max()) == 2.0
+    finally:
+        norms.AFFINE_CLAMP_BOUND = original
+
+    assert norms.build_norm("affine_clamp", 4).bound == original

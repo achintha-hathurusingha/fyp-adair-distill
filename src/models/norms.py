@@ -143,12 +143,17 @@ class AffineClampNorm2d(nn.Module):
     """
 
     def __init__(self, channels: int, eps: float = 1e-6,
-                 bound: float = AFFINE_CLAMP_BOUND) -> None:
+                 bound: float | None = None) -> None:
         super().__init__()
         del eps  # unused; uniform constructor signature
         self.weight = nn.Parameter(torch.ones(channels))
         self.bias = nn.Parameter(torch.zeros(channels))
-        self.bound = bound
+        # Read the module constant at CONSTRUCTION time, not as a default
+        # argument: Python binds defaults once at def time, so `bound=
+        # AFFINE_CLAMP_BOUND` would freeze the value at import and silently
+        # ignore any later override. That produced a bound sweep in which every
+        # setting returned an identical result.
+        self.bound = AFFINE_CLAMP_BOUND if bound is None else bound
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
