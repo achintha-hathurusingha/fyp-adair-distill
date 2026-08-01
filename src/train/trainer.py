@@ -214,13 +214,47 @@ class Trainer:
         self._trace_fh.write(f"{it},{lr:.8g},{loss:.8g},{gn:.8g}\n")
         self._trace_fh.flush()
 
+    def _fp32_recheck(self, gn_amp: float) -> float:
+        """Recompute the current step's gradient in fp32 and return its norm.
+
+        The decisive precision test: same model state, same batch, same loss —
+        only the arithmetic precision differs. Running it inline rather than as
+        a separate job matters, because changing AMP at the start of a resumed
+        run forks the trajectory and the model never reaches the same state.
+
+        Parameters are fp32 already (AMP only autocasts ops), so disabling
+        autocast gives a genuine fp32 backward. The live gradients are saved and
+        restored, so this observes without perturbing training.
+        """
+        saved = {n: (p.grad.detach().clone() if p.grad is not None else None)
+                 for n, p in self.model.named_parameters()}
+        self.optimizer.zero_grad(set_to_none=True)
+        try:
+            for degraded, clean in self._recent:
+                d = degraded.to(self.device)
+                c = clean.to(self.device)
+                with torch.autocast("cuda", enabled=False):
+                    loss = self.criterion(self.model(d), c)
+                (loss / self.accum_steps).backward()
+            gn_fp32 = grad_norm(self.model)
+        finally:
+            for n, p in self.model.named_parameters():
+                p.grad = saved[n]
+        self.log.warning(
+            f"    PRECISION RECHECK: bf16 grad norm {gn_amp:.6e}  vs  "
+            f"fp32 grad norm {gn_fp32:.6e}  (ratio {gn_amp / max(gn_fp32, 1e-30):.3e})")
+        return gn_fp32
+
     def _dump_spike(self, it: int, gn: float) -> None:
         """Save the micro-batches responsible for an anomalous gradient."""
         out = self.run_dir / "spikes"
         out.mkdir(exist_ok=True)
         path = out / f"step_{it}_gn_{gn:.3e}.pt"
         torch.save({"iteration": it, "grad_norm": gn,
-                    "micro_batches": self._recent}, path)
+                    "micro_batches": self._recent,
+                    "model": {k: v.detach().cpu()
+                              for k, v in self.model.state_dict().items()}},
+                   path)
         stats = []
         for i, (d, c) in enumerate(self._recent):
             stats.append(
