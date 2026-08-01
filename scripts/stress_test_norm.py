@@ -108,6 +108,22 @@ def real_dark_crops(patch: int, device: str, n: int = 3) -> dict[str, torch.Tens
     return out
 
 
+def spike_samples(blob: dict, device: str) -> dict[str, torch.Tensor]:
+    """The ACTUAL crops from a captured spike.
+
+    Synthetic worst cases turned out not to reproduce the B0 failure at all —
+    all-black, all-white, near-zero-variance and even the lowest-variance real
+    crops in the training set all passed cleanly under N-F. Only the genuine
+    sample does. A stress suite that omits the known failing input is testing
+    the tester's imagination, so the captured batch is always included.
+    """
+    out = {}
+    for mi, (d, _c) in enumerate(blob.get("micro_batches", [])):
+        for i in range(d.shape[0]):
+            out[f"spike:m{mi}s{i}"] = d[i:i + 1].to(device)
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--weights", default=None,
@@ -132,6 +148,10 @@ def main() -> None:
 
     cases = adversarial_inputs(args.patch, args.device)
     cases.update(real_dark_crops(args.patch, args.device))
+    if args.weights and "micro_batches" in blob:
+        spikes = spike_samples(blob, args.device)
+        cases.update(spikes)
+        print(f"          + {len(spikes)} real crops from the captured spike")
     print(f"cases   : {len(cases)}  |  fail threshold: max|out| > {FAIL_ABOVE}\n")
 
     geoms = [args.geometry] if args.geometry else list(GEOMETRIES)
@@ -156,7 +176,17 @@ def main() -> None:
             models[vname] = m
 
         failures = {v: 0 for v in VARIANTS}
+        hidden = 0
+        interesting = {}
         for cname, x in cases.items():
+            if cname.startswith("spike:"):
+                with torch.no_grad():
+                    ref = models["N-F  (affine at full-res)"](x)
+                if float(ref.abs().max()) <= FAIL_ABOVE:
+                    continue          # healthy spike-batch sample; not shown
+            interesting[cname] = x
+
+        for cname, x in interesting.items():
             row = f"{cname:<28}"
             for vname, m in models.items():
                 with torch.no_grad():
@@ -166,11 +196,14 @@ def main() -> None:
                 failures[vname] += bool(bad)
                 row += f"{('FAIL ' if bad else '     ') + f'{mx:>10.4g}':>30}"
             print(row)
+        hidden = len(cases) - len(interesting)
+        if hidden:
+            print(f"{'(' + str(hidden) + ' healthy spike-batch crops hidden)':<28}")
         print("-" * len(header))
         summary = f"{'FAILURES':<28}"
         for vname in VARIANTS:
             n = failures[vname]
-            summary += f"{(f'{n}/{len(cases)}'):>30}"
+            summary += f"{(f'{n}/{len(interesting)}'):>30}"
         print(summary + "\n")
 
 
