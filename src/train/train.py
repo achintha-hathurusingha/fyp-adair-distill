@@ -152,7 +152,15 @@ def main() -> None:
     ap.add_argument("--patch-size", type=int, default=128,
                     help="AdaIR trains at 128 (options.py:15); 256 exceeds 6GB at batch 32")
     ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--num-workers", type=int, default=8)
+    # DELIBERATE exception to YAML authority. num_workers is a machine-specific
+    # throughput knob, not a scientific parameter: the dataset seeds its RNG
+    # from (base_seed, index) rather than worker id, so the sample stream is
+    # worker-count-independent. Verified, not assumed — determinism_check gives
+    # a bit-identical fingerprint at 6 and 12 workers. Everything that changes
+    # RESULTS still comes from the reviewed YAML and cannot be overridden.
+    ap.add_argument("--num-workers", type=int, default=None,
+                    help="override dataloader workers (throughput only; proven "
+                         "not to change results)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out-root", default="runs/1p5b")
@@ -188,9 +196,13 @@ def main() -> None:
         [data_root / "Train" / "Denoise"],
         batch_size=micro_bs, patch_size=cfg["data"]["patch_size"],
         sigmas=tuple(cfg["data"]["sigmas"]),
-        num_workers=cfg["data"].get("num_workers", args.num_workers),
+        num_workers=(args.num_workers if args.num_workers is not None
+                     else cfg["data"]["num_workers"]),
         seed=args.seed, length=length,
         cache_budget_gb=cfg["data"]["cache_budget_gb"])
+
+    if args.num_workers is not None:
+        cfg["data"]["num_workers"] = args.num_workers
 
     model = build_model(cfg)
     trainer = Trainer(model, loader, cfg, run_dir, device=args.device,
