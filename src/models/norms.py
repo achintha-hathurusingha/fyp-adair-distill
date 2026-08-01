@@ -23,7 +23,16 @@ import torch
 from torch import nn
 
 #: Every supported ``norm_type``. Unknown values raise (rule 9).
-NORM_TYPES = ("layernorm2d", "layernorm2d_rsqrt", "affine", "identity", "batchnorm")
+NORM_TYPES = ("layernorm2d", "layernorm2d_rsqrt", "affine", "affine_clamp",
+              "identity", "batchnorm")
+
+#: Default magnitude bound for :class:`AffineClampNorm2d` (variant N-F-clamp).
+#: Chosen from measurement, not taste: at the B0 divergence the exploding stage
+#: (`dec3`) reached max|a| 5.6e6 while every healthy sample stayed under ~30
+#: through the same stage. A bound of 64 is >2x the healthy maximum observed and
+#: ~5 orders below the pathological one, so it is inert in normal training and
+#: only engages on the failure mode.
+AFFINE_CLAMP_BOUND = 64.0
 
 
 class LayerNorm2d(nn.Module):
@@ -113,6 +122,39 @@ class AffineNorm2d(nn.Module):
         return x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
 
 
+class AffineClampNorm2d(nn.Module):
+    """N-F-clamp: affine, then a hard magnitude bound. No statistics.
+
+    Motivation (findings F9). Under N-F the full-resolution decoder stage
+    `dec3` has no normalisation to bound its input. A rare low-variance sample
+    drove it to max|a| 5.6e6 and produced a gradient norm of 6.5e7, killing B0.
+    LayerNorm survives that because it renormalises to unit variance — but it
+    costs reductions, a `Sqrt` and a `Div`, which is exactly what N-F removed to
+    win 1.59x on the NPU.
+
+    A clamp bounds worst-case magnitude directly with one elementwise op, no
+    reduction. It is also *stronger* than normalisation against this failure:
+    LayerNorm rescales by measured statistics, which a sufficiently pathological
+    input can still evade, whereas a clamp bounds unconditionally.
+
+    ``Clip`` is a first-class quantized op on Hexagon and is commonly fused into
+    the preceding operation, so the expected latency cost is near zero — but
+    that is a claim to MEASURE on AI Hub, not to assume.
+    """
+
+    def __init__(self, channels: int, eps: float = 1e-6,
+                 bound: float = AFFINE_CLAMP_BOUND) -> None:
+        super().__init__()
+        del eps  # unused; uniform constructor signature
+        self.weight = nn.Parameter(torch.ones(channels))
+        self.bias = nn.Parameter(torch.zeros(channels))
+        self.bound = bound
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
+        return torch.clamp(x, -self.bound, self.bound)
+
+
 class IdentityNorm2d(nn.Module):
     """N-C: no normalisation at all. Zero ops.
 
@@ -144,6 +186,8 @@ def build_norm(norm_type: str, channels: int, eps: float = 1e-6) -> nn.Module:
         return LayerNorm2dRsqrt(channels, eps)
     if norm_type == "affine":
         return AffineNorm2d(channels)
+    if norm_type == "affine_clamp":
+        return AffineClampNorm2d(channels)
     if norm_type == "identity":
         return IdentityNorm2d(channels)
     if norm_type == "batchnorm":

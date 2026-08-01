@@ -203,3 +203,58 @@ def test_spike_dump_disabled_by_default(tmp_path) -> None:
                for _ in range(4)]
     Trainer(model, batches, _cfg(), tmp_path, device="cpu").train()
     assert not (tmp_path / "spikes").exists()
+
+
+def test_fp32_recheck_is_actually_invoked_on_spike(tmp_path, monkeypatch) -> None:
+    """The recheck must be CALLED, not merely defined.
+
+    Regression: `_fp32_recheck` was added but its call site never landed (a
+    failed string replacement), so the method sat as dead code. 179 tests passed
+    and the feature was entirely absent, because every test exercised the dump
+    and none exercised the invocation. A run then burned ~30 minutes on devon
+    producing no measurement.
+    """
+    torch.manual_seed(0)
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    batches = [(torch.rand(2, 3, 32, 32), torch.rand(2, 3, 32, 32), 15)
+               for _ in range(2)]
+    cfg = _cfg()
+    cfg["schedule"]["total_iters"] = 2
+    cfg["train"]["val_every"] = 10 ** 9
+    cfg["train"]["amp"] = True
+    cfg["train"]["spike_dump_threshold"] = 1e-12
+
+    trainer = Trainer(model, batches, cfg, tmp_path, device="cpu")
+    # The real recheck needs CUDA autocast; assert the wiring, not the kernel.
+    trainer.device = "cuda"
+    called = []
+    monkeypatch.setattr(trainer, "_fp32_recheck",
+                        lambda gn: called.append(gn) or 0.0)
+    trainer.device = "cpu"
+
+    # Drive _dump_spike directly with the guard condition satisfied.
+    trainer.amp = True
+    trainer.device = "cuda"
+    trainer._recent = [(b[0], b[1]) for b in batches[:1]]
+    trainer._dump_spike(123, 4.2e7)
+
+    assert called == [4.2e7], (
+        "_fp32_recheck was not called from _dump_spike — the call site is "
+        "missing, which is exactly the regression this test exists for")
+
+
+def test_fp32_recheck_skipped_without_amp(tmp_path, monkeypatch) -> None:
+    """No point rechecking precision when training is already full precision."""
+    torch.manual_seed(0)
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    cfg = _cfg()
+    cfg["train"]["amp"] = False
+    trainer = Trainer(model, [], cfg, tmp_path, device="cpu")
+    called = []
+    monkeypatch.setattr(trainer, "_fp32_recheck",
+                        lambda gn: called.append(gn) or 0.0)
+    trainer.amp = False
+    trainer.device = "cuda"
+    trainer._recent = [(torch.rand(2, 3, 32, 32), torch.rand(2, 3, 32, 32))]
+    trainer._dump_spike(1, 1e9)
+    assert called == []

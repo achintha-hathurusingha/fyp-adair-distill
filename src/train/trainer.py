@@ -267,6 +267,8 @@ class Trainer:
             f"GRADIENT SPIKE at step {it}: norm {gn:.6e}\n"
             + "\n".join(stats)
             + f"\n    batch saved to {path}")
+        if self.amp and self.device == "cuda":
+            self._fp32_recheck(gn)
 
     def save_checkpoint(self, path: Path) -> None:
         """Save everything needed for an exact resume."""
