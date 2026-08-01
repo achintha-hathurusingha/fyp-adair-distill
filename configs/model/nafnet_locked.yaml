@@ -1,7 +1,15 @@
-# LOCKED student architecture — Task 1.5b decision, 2026-07-31.
+# LOCKED student architecture — Task 1.5b decision 2026-07-31,
+# AMENDED 2026-08-02 after the B0 divergence (findings F9).
 #
-# NORMALIZATION: N-F — LayerNorm2d everywhere EXCEPT the full-resolution stages
-# (encoder level 0 and its decoder counterpart), which use affine-only.
+# NORMALIZATION: N-F+clamp — LayerNorm2d everywhere EXCEPT the full-resolution
+# stages (encoder level 0 and its decoder counterpart), which use affine plus a
+# hard magnitude clamp at +-8.
+#
+# WHY THE AMENDMENT. Plain N-F killed B0 at iteration 24356 with a gradient norm
+# of 6.5e7. One rare low-variance crop drove the full-resolution DECODER stage
+# (`dec3`) to max|a| 5.6e6, because under N-F that stage has no normalisation to
+# bound a large-but-finite input. The vulnerability is family-wide: the S arm
+# reproduces it too (1129 vs N-A's 2.4 on an adversarial input).
 #
 # Evidence (reports/norm_quality.md, findings.md F1/F6):
 #   Q-A  LayerNorm2d everywhere   31.019 dB   2.513 ms   1.00x
@@ -19,9 +27,32 @@
 name: nafnet
 img_channels: 3
 
-# --- LOCKED normalization. Do not change without re-running Task 1.5b. ---
+# --- LOCKED normalization. Do not change without re-running Task 1.5b AND
+# --- scripts/stress_test_norm.py against a TRAINED checkpoint. ---
 norm_type: layernorm2d          # deeper stages keep full LayerNorm
-full_res_norm_type: affine      # full-resolution stages: affine only (N-F)
+full_res_norm_type: affine_clamp  # full-resolution: affine + clamp (N-F+clamp)
+clamp_bound: 8.0                # see below — measured, not chosen by taste
+
+# Evidence for the clamp and its bound (findings F9), all on the captured
+# spike-state weights so the comparison is direct:
+#
+#   variant                        sample 12    healthy    S24 INT8
+#   N-F  (affine)                    705,100      1.048    2.872 ms
+#   Fix-B (LayerNorm at full-res)      15.71      11.69    4.728 ms  (1.65x)
+#   Fix-C (clamp 8)   <- LOCKED        17.49      1.048    2.881 ms  (1.00x)
+#
+# The clamp matches full normalisation's containment for +0.3% latency, and is
+# INERT on healthy inputs (1.048 unchanged at every bound tested down to 2),
+# whereas restoring LayerNorm perturbs them. It is also structurally stronger:
+# a clamp bounds unconditionally, where normalisation rescales by measured
+# statistics a pathological input could still evade.
+#
+# Bound 8.0: >2x the healthy maximum observed through that stage, ~5 orders
+# below the pathological one. Validated over 50k iterations of live training
+# (iteration 20k -> 70k+, through both original divergence points at 24356 and
+# 28654) with a pre-committed Mann-Kendall test on 8 intervals showing NO
+# significant trend in either pre-clamp magnitude (p=0.71) or engagement rate
+# (p=0.27). Engagement is rare and stationary; PSNR improved monotonically.
 
 # Default geometry = the M arm, re-selected on N-F latency
 # (reports/family_reselection.md): M = w16_sidd, 7.37M params, 4.13 GMACs,

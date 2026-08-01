@@ -47,7 +47,9 @@ def test_architecture_matches_the_locked_m_arm() -> None:
     assert cfg["model"] == {
         "width": 16, "enc_blk_nums": [2, 2, 4, 8], "middle_blk_num": 12,
         "dec_blk_nums": [2, 2, 2, 2], "norm_type": "layernorm2d",
-        "full_res_norm_type": "affine"}
+        # affine_clamp, not plain affine: findings F9. Plain affine at full
+        # resolution is the configuration that diverged at iteration 24356.
+        "full_res_norm_type": "affine_clamp", "clamp_bound": 8.0}
 
 
 def test_b0_carries_no_distillation_term() -> None:

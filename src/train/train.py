@@ -49,7 +49,8 @@ ARMS: dict[str, dict] = {
     # B0 — the reference baseline. LOCKED architecture (N-F on the M arm),
     # ground truth only, no teacher. Effective batch 32 via accumulation, and a
     # loose grad clip as tail insurance. See configs/train/b0_baseline.yaml.
-    "B0": {"norm": {"norm_type": "layernorm2d", "full_res_norm_type": "affine"},
+    "B0": {"norm": {"norm_type": "layernorm2d",
+                    "full_res_norm_type": "affine_clamp", "clamp_bound": 8.0},
            "config": "configs/train/b0_baseline.yaml",
            "desc": "B0 baseline: locked N-F on w16_sidd, GT only, no teacher"},
     # Q-A control for the B0 divergence: identical to B0 in every respect except

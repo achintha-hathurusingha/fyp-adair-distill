@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from src.models.nafnet import NAFNet
-from src.models.norms import AffineNorm2d, LayerNorm2d
+from src.models.norms import AffineClampNorm2d, LayerNorm2d
 from src.utils.config import load_yaml
 
 LOCKED = "configs/model/nafnet_locked.yaml"
@@ -25,15 +25,22 @@ EXPECTED_FAMILY = {
 }
 
 
-def test_locked_norm_is_N_F() -> None:
-    """N-F: LayerNorm2d deeper, affine at full resolution.
+def test_locked_norm_is_N_F_plus_clamp() -> None:
+    """N-F+clamp: LayerNorm2d deeper, affine PLUS a magnitude clamp at full res.
 
     Q-A 31.019 dB / Q-F 31.014 dB / Q-E diverged. N-F costs 0.005 dB for a
     1.59x speedup; N-E's 2.34x is unreachable (findings F6).
+
+    AMENDED 2026-08-02: plain affine at full resolution killed B0 at iteration
+    24356 (findings F9) — that stage has nothing to bound a large-but-finite
+    input. The clamp restores containment for +0.3% latency, where restoring
+    LayerNorm costs 65%.
     """
     cfg = load_yaml(LOCKED)
     assert cfg["norm_type"] == "layernorm2d"
-    assert cfg["full_res_norm_type"] == "affine"
+    assert cfg["full_res_norm_type"] == "affine_clamp", (
+        "plain 'affine' at full resolution is the configuration that diverged")
+    assert cfg["clamp_bound"] == 8.0
 
 
 def test_built_model_places_norms_as_locked() -> None:
@@ -43,10 +50,12 @@ def test_built_model_places_norms_as_locked() -> None:
                    middle_blk_num=cfg["middle_blk_num"],
                    dec_blk_nums=cfg["dec_blk_nums"],
                    norm_type=cfg["norm_type"],
-                   full_res_norm_type=cfg["full_res_norm_type"])
-    # full resolution -> affine only
-    assert isinstance(model.encoders[0][0].norm1, AffineNorm2d)
-    assert isinstance(model.decoders[-1][0].norm1, AffineNorm2d)
+                   full_res_norm_type=cfg["full_res_norm_type"],
+                   clamp_bound=cfg["clamp_bound"])
+    # full resolution -> affine + clamp
+    assert isinstance(model.encoders[0][0].norm1, AffineClampNorm2d)
+    assert isinstance(model.decoders[-1][0].norm1, AffineClampNorm2d)
+    assert model.decoders[-1][0].norm1.bound == cfg["clamp_bound"]
     # deeper stages -> full LayerNorm
     assert isinstance(model.encoders[1][0].norm1, LayerNorm2d)
     assert isinstance(model.middle_blks[0].norm1, LayerNorm2d)

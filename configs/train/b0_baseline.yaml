@@ -23,7 +23,8 @@ arch:
   middle_blk_num: 12
   dec_blk_nums: [2, 2, 2, 2]
   norm_type: layernorm2d
-  full_res_norm_type: affine
+  full_res_norm_type: affine_clamp   # F9: plain affine here killed the run
+  clamp_bound: 8.0                   # active from iteration 0, not retrofitted
 
 data:
   # AdaIR's own training patch size (options.py:15). 256 exceeds 6 GB at these

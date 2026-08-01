@@ -25,6 +25,12 @@ from src.utils.config import REPO_ROOT, load_yaml
 VARIANTS = {
     "NF": {"norm_type": "layernorm2d", "full_res_norm_type": "affine"},
     "NE": {"norm_type": "affine"},
+    # FC — the LOCKED variant after findings F9. Swept across the whole grid
+    # rather than extrapolated from the M arm's +0.3%: the clamp adds Clip nodes
+    # in proportion to each config's full-resolution block count, so the delta
+    # is not uniform and the family ranking cannot be assumed unchanged.
+    "FC": {"norm_type": "layernorm2d", "full_res_norm_type": "affine_clamp",
+           "clamp_bound": 8.0},
 }
 DEVICE = "Samsung Galaxy S24 (Family)"
 COMPILE_OPTS = "--target_runtime qnn_context_binary"
