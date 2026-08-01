@@ -587,6 +587,44 @@ gradients. The concentration is therefore a **symptom of the `dec3` forward
 explosion, not an independent middle-stage pathology** — and a per-layer scheme
 like AGC would clip hardest at `intro`, the point furthest from the cause.
 
+**These numbers are from the UNCLAMPED (N-F) model** — they describe the broken
+pass, i.e. what happens without the fix.
+
+**`intro` is not the encoder-side counterpart of `dec3`.** It is
+`nn.Conv2d(3, width, 3, padding=1)` — a plain convolution with no normalisation
+in any variant, untouched by N-F. The full-resolution *encoder* stage that N-F
+does modify is `encoders.0` (g/p 2.4e5). So `intro` topping the table is not
+evidence of a symmetric entry/exit vulnerability; it is where all gradients
+funnel at the end of backprop, and it has the smallest parameter norm of any
+stage (2.975), which inflates a g/p ratio directly.
+
+### Fix-C suppresses the upstream gradient signature, not only the forward blowup
+
+`torch.clamp` has zero gradient outside its range, so bounding `dec3` should
+also cut the backward chain before it reaches the encoders. Same weights, same
+sample, clamp off vs on:
+
+| stage | N-F (unclamped) | Fix-C(8) | reduction |
+|---|---|---|---|
+| intro | 2.712e7 | 1,216 | 2.23e4x |
+| encoders.0-3 | 4.2e6 - 1.3e7 | 190 - 591 | ~2.2e4x |
+| middle_blks | 3.794e6 | 165 | 2.30e4x |
+| decoders.0-3 | 8.3e3 - 4.3e5 | 0.43 - 21 | ~1.9e4x |
+| **ending** | 1.476e4 | 6.48 | **2,278x** |
+| TOTAL | 3.851e7 | 1,728 | 2.23e4x |
+| loss | 1,865 | 1.404 | |
+| max output | 705,100 | 17.49 | |
+
+**`ending` is the diagnostic row.** It sits *after* `dec3` in the forward pass,
+so in backward it precedes the clamp — and it is the only stage reduced by just
+2,278x, while everything upstream of the clamp gets ~2.2e4x. The extra ~10x is
+the clamp's zero-gradient region cutting the chain, cleanly separable from the
+~1,300x that comes from the loss no longer exploding.
+
+So the fix does not merely prevent a large loss: it stops the pathological
+gradient from ever propagating. `intro` falls from 2.7e7 to an unremarkable
+1,216.
+
 **Consequence: Fix-C alone is sufficient.** It bounds the explosion at its
 origin. Adaptive Gradient Clipping was considered as a complementary
 network-wide fix and is **parked on this evidence**, not on preference.
