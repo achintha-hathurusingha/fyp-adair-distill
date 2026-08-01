@@ -148,3 +148,58 @@ def test_trace_disabled_by_default(tmp_path) -> None:
                for _ in range(4)]
     Trainer(model, batches, _cfg(), tmp_path, device="cpu").train()
     assert not (tmp_path / "trace.csv").exists()
+
+
+def test_spike_dump_captures_the_offending_batch(tmp_path) -> None:
+    """The batch that caused an anomalous gradient must be recoverable.
+
+    Reconstructing it from the seed offline is fragile — model init and RNG
+    restore both consume the global stream — so the trainer saves it in the act.
+    """
+    torch.manual_seed(0)
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    batches = [(torch.rand(2, 3, 32, 32), torch.rand(2, 3, 32, 32), 15)
+               for _ in range(4)]
+    cfg = _cfg()
+    cfg["schedule"]["total_iters"] = 4
+    cfg["train"]["val_every"] = 10 ** 9
+    cfg["train"]["spike_dump_threshold"] = 1e-12   # everything counts as a spike
+    Trainer(model, batches, cfg, tmp_path, device="cpu").train()
+
+    dumps = sorted((tmp_path / "spikes").glob("step_*.pt"))
+    assert dumps, "no spike dump written"
+    payload = torch.load(dumps[0], weights_only=False)
+    assert "micro_batches" in payload and payload["micro_batches"]
+    d, c = payload["micro_batches"][0]
+    assert d.shape == (2, 3, 32, 32) and c.shape == (2, 3, 32, 32)
+    assert payload["grad_norm"] > 0
+
+
+def test_spike_dump_holds_only_the_current_step(tmp_path) -> None:
+    """The buffer must not accumulate across steps — one step's worth only."""
+    torch.manual_seed(0)
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    accum = 2
+    batches = [(torch.rand(2, 3, 32, 32), torch.rand(2, 3, 32, 32), 15)
+               for _ in range(6)]
+    cfg = _cfg()
+    cfg["schedule"]["total_iters"] = 3
+    cfg["train"]["accum_steps"] = accum
+    cfg["train"]["val_every"] = 10 ** 9
+    cfg["train"]["spike_dump_threshold"] = 1e-12
+    Trainer(model, batches, cfg, tmp_path, device="cpu").train()
+
+    for dump in sorted((tmp_path / "spikes").glob("step_*.pt")):
+        payload = torch.load(dump, weights_only=False)
+        assert len(payload["micro_batches"]) == accum, (
+            f"expected {accum} micro-batches, got "
+            f"{len(payload['micro_batches'])} — buffer is leaking across steps")
+
+
+def test_spike_dump_disabled_by_default(tmp_path) -> None:
+    torch.manual_seed(0)
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    batches = [(torch.rand(2, 3, 32, 32), torch.rand(2, 3, 32, 32), 15)
+               for _ in range(4)]
+    Trainer(model, batches, _cfg(), tmp_path, device="cpu").train()
+    assert not (tmp_path / "spikes").exists()

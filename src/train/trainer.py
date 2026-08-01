@@ -177,6 +177,12 @@ class Trainer:
         # when, nor what the loss was doing around it. 0 disables.
         self.trace_every = int(tr.get("trace_every", 0))
         self._trace_fh = None
+        # When the gradient norm exceeds this, dump the exact micro-batches that
+        # produced it. Reconstructing them from the seed offline is fragile —
+        # model init and RNG restore both consume the global stream — so the
+        # batch is caught in the act instead. 0 disables.
+        self.spike_dump = float(tr.get("spike_dump_threshold", 0.0))
+        self._recent: list = []
         self.amp = tr.get("amp", True)
         self.val_every = tr.get("val_every", 2_000)
         self.ckpt_every = tr.get("ckpt_every", 2_000)
@@ -207,6 +213,26 @@ class Trainer:
                 self._trace_fh.write("iteration,lr,loss,grad_norm\n")
         self._trace_fh.write(f"{it},{lr:.8g},{loss:.8g},{gn:.8g}\n")
         self._trace_fh.flush()
+
+    def _dump_spike(self, it: int, gn: float) -> None:
+        """Save the micro-batches responsible for an anomalous gradient."""
+        out = self.run_dir / "spikes"
+        out.mkdir(exist_ok=True)
+        path = out / f"step_{it}_gn_{gn:.3e}.pt"
+        torch.save({"iteration": it, "grad_norm": gn,
+                    "micro_batches": self._recent}, path)
+        stats = []
+        for i, (d, c) in enumerate(self._recent):
+            stats.append(
+                f"    micro{i}: degraded[min {float(d.min()):.4f} "
+                f"max {float(d.max()):.4f} mean {float(d.mean()):.4f}] "
+                f"clean[min {float(c.min()):.4f} max {float(c.max()):.4f} "
+                f"mean {float(c.mean()):.4f}] "
+                f"nonfinite={int((~torch.isfinite(d)).sum()) + int((~torch.isfinite(c)).sum())}")
+        self.log.warning(
+            f"GRADIENT SPIKE at step {it}: norm {gn:.6e}\n"
+            + "\n".join(stats)
+            + f"\n    batch saved to {path}")
 
     def save_checkpoint(self, path: Path) -> None:
         """Save everything needed for an exact resume."""
@@ -317,6 +343,9 @@ class Trainer:
                 # Divide so accumulated gradients AVERAGE over the effective
                 # batch rather than summing — otherwise the effective learning
                 # rate scales with accum_steps.
+                if self.spike_dump:
+                    self._recent.append((degraded.detach().cpu(),
+                                         clean.detach().cpu()))
                 (loss / self.accum_steps).backward()
                 loss_accum += float(loss.detach())
                 n_accum += 1
@@ -341,6 +370,9 @@ class Trainer:
                 max_gnorm = max(max_gnorm, gn)
                 if self.trace_every and it % self.trace_every == 0:
                     self._trace(it, lr, float(loss.detach()), gn)
+                if self.spike_dump and gn > self.spike_dump:
+                    self._dump_spike(it, gn)
+                self._recent = []
 
                 # Non-finite gradients must never reach the weights. Clipping is
                 # NOT a guard against them: clip_grad_norm_ computes
