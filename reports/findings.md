@@ -469,6 +469,124 @@ time would have prevented all three.
 
 ---
 
+## F9. N-F's unnormalized full-resolution stage turns a rare input into a run-killing gradient
+
+**B0 died at optimizer step 24356 with a gradient norm of 6.5e7.** Deterministic
+— two resumes from the same checkpoint reproduced it bit-identically, including
+`maxgn 65240022.433` to every printed digit — so not hardware.
+
+### The mechanism, end to end
+
+One crop out of 32 does it. At the spike, through the same weights:
+
+| | loss | output range |
+|---|---|---|
+| samples 0-11, 13-15 | 0.013-0.030 | ~[0, 1] |
+| **sample 12** | **1864.64** | **[-471206, +705137]** |
+
+Sample 12 is a dark, low-variance crop (std 0.084 against a typical 0.25, 10.65%
+exact zeros) — unusual, but not corrupt, not saturated, no non-finite values.
+
+Stage activations for that sample show exactly where it goes wrong:
+
+| enc0 | enc1 | enc2 | enc3 | middle | dec0 | dec1 | dec2 | **dec3** |
+|---|---|---|---|---|---|---|---|---|
+| 0.06 | 0.07 | 0.15 | 0.36 | 23.5 (max 970) | 16.4 | 8.2 | 4.8 | **2821 (max 5.6e6)** |
+
+The encoder is fine. The middle stage runs hot — and **Q-A does that too**, so
+that part is depth-general, not an N-F artifact. The decoder walks it back down.
+Then `dec3` explodes by five orders of magnitude.
+
+**`dec3` is the full-resolution decoder stage — precisely where N-F replaces
+LayerNorm2d with affine.** It is the one stage with no normalization to bound a
+large-but-finite input. Q-A, which keeps LayerNorm there, saw spikes of 61, 293
+and 135 over 45k iterations on the identical schedule and **survived every one**,
+improving monotonically to PSNR 31.214.
+
+Three things had to coincide: a depth-general hot middle stage, a rare
+low-variance sample, and an unnormalized output stage. That is why 30k
+iterations of ablation never surfaced it.
+
+### Ruled out, with evidence
+
+- **Not precision.** fp32 reproduces it: grad norm 1.2e6, loss 116.6 on the same
+  batch and weights. bf16 amplifies ~54x but does not cause it.
+- **Not the residual gates.** `beta` max 0.551, `gamma` max 0.432 (means 0.18 /
+  0.16) — modest. Extra weight decay on them would not have helped.
+- **Not gradient clipping's absence.** `grad_clip` 8.0 -> 1.0 moved death from
+  step 25582 to 28654. Clipping bounds the step, it does not stop the model
+  reaching a state where a normal input produces a catastrophic output. It is
+  also not a guard against Inf: `clip_grad_norm_` scales by
+  `max_norm / (total_norm + eps)`, which for an Inf norm is ~0, and `inf * 0 =
+  nan` — clipping actively CONVERTS an Inf gradient into NaN weights.
+
+### The fix, measured rather than assumed
+
+Same spike-state weights loaded into each candidate (LayerNorm2d, AffineNorm2d
+and AffineClampNorm2d share parameter shapes, so this is a direct comparison):
+
+| variant | sample 12 max\|out\| | healthy max\|out\| |
+|---|---|---|
+| N-F (affine) | 705,100 | 1.048 |
+| Fix-A (restore LayerNorm at full-res) | 15.71 | 11.69 |
+| Fix-C clamp 64 | 667.5 | 1.048 |
+| **Fix-C clamp 8** | **17.49** | **1.048** |
+| Fix-C clamp 2 | 2.572 | 1.048 |
+
+**Fix-C (`affine_clamp`) at bound 8 matches Fix-A's containment while leaving
+healthy outputs unchanged**, because a clamp is inert until it engages, whereas
+restoring LayerNorm changes the function the weights were trained under. A clamp
+is also *stronger* in principle: it bounds unconditionally, where normalization
+rescales by measured statistics that a sufficiently pathological input can still
+evade. Latency on-device is still to be measured — `Clip` is a first-class
+quantized Hexagon op and usually fuses, but that is a claim to verify, not
+assume.
+
+### Process lessons
+
+**A per-step trace that logs only the last micro-batch is blind to the anomaly
+it exists to catch.** With `accum_steps: 2` the trace recorded micro-batch 1's
+loss (0.019) and never micro-batch 0's (7931). This produced a confidently wrong
+intermediate conclusion — "loss is normal, the gradient explodes anyway" — which
+pointed the whole investigation at precision. Log every micro-batch, or the
+worst across them; never the last.
+
+**A function can be unreachable dead code behind a green test suite.** The fp32
+recheck was added, tested, and shipped — but its call site never landed, because
+a string replacement silently failed to match. 179 tests passed and the feature
+was entirely absent; a 30-minute diagnostic run produced no measurement. Every
+test asserted the artifact produced, none asserted the invocation fired. Write
+the call-site test.
+
+**Anomaly thresholds chosen by intuition miss the anomaly.** The per-sample
+screen flagged `std < 0.01` and saturation `> 50%`. Sample 12 has std 0.084 and
+10.65% zeros, so it passed as clean and was reported as such. The batch was
+declared normal twice before per-sample forward losses found it.
+
+**Synthetic adversarial inputs did not reproduce the failure.** All-black,
+all-white, near-zero-variance, extreme-noise and the three lowest-variance REAL
+crops in the training set (std down to 0.001) all pass cleanly under N-F, max
+output 1.589. Only the genuine sample triggers it. A stress suite built from
+imagined worst cases would have certified N-F as safe — which is why
+`scripts/stress_test_norm.py` always includes the captured spike batch.
+
+### Exposure window — a general caution about the 1.5b protocol
+
+**A short ablation can establish that a quality difference is negligible while
+saying nothing at all about rare catastrophic failure modes.** The norm lock
+rested on 30k iterations on the S arm (-0.005 dB) and 10k on M (-0.006 dB). Both
+conclusions remain valid *as quality statements*. Neither had any power to detect
+a failure that needs ~24k iterations and a 1-in-thousands sample to surface —
+and B0 is a 300k run, i.e. more than an order of magnitude more exposure than
+the evidence that licensed it.
+
+This applies to every decision taken on a short ablation in this project, not
+only the norm lock. The mitigation is not longer ablations, which are too
+expensive: it is an adversarial stress pass, which costs seconds and would have
+caught this before B0 launched.
+
+---
+
 ## AI Hub job IDs (verifiable provenance)
 
 Every on-device number in this repository traces to a job below. Job pages are
