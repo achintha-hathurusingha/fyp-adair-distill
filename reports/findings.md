@@ -661,6 +661,42 @@ give the same rate. `AffineClampNorm2d` therefore also records the maximum
 **pre-clamp** magnitude per interval (logged as `premax`), so a bound that is
 quietly running out of headroom over a long run is visible rather than inferred.
 
+### Closing summary — the whole chain
+
+For anyone reading this cold:
+
+1. **N-F was locked** on Task 1.5b: 0.005 dB against full LayerNorm on the S arm
+   (30k iterations), -0.006 dB on the M arm (10k), for a 1.59x INT8 speedup.
+2. **B0 launched and died** at optimizer step 24356 with a gradient norm of
+   6.5e7. Deterministic, not hardware: two resumes reproduced it bit-identically
+   including `maxgn 65240022.433` to every printed digit.
+3. **Mechanism traced.** One crop in 32 (dark, low-variance, std 0.084) produced
+   loss 1864 and output range [-471206, +705137] where the other 31 were normal.
+   Stage activations located it exactly: fine through the encoder, hot at the
+   middle (max 970 — Q-A does this too), walked back down through the decoders,
+   then **`dec3` exploded to 5.6e6**. `dec3` is the full-resolution decoder
+   stage — the one place N-F leaves without normalisation to bound its input.
+4. **Ruled out**, each with evidence: precision (fp32 reproduces it), the
+   residual gates (beta 0.55 / gamma 0.43), gradient clipping (8.0 -> 1.0 moved
+   death from 25582 to 28654 — postponement, not prevention), and a
+   middle-stage cause (its gradient/parameter ratio is LOWER than every encoder
+   stage; the concentration at `intro` is backprop accumulating a bad output
+   error, not an independent pathology).
+5. **Fix selected on measurement.** Restoring LayerNorm at full resolution costs
+   **1.65x**; a clamp costs **+0.3%** and contains the failure equally
+   (17.49 vs 15.71) while leaving healthy outputs bit-unchanged.
+6. **Validated over 50k live iterations** through both original divergence
+   points, with a **pre-committed** Mann-Kendall test finding no trend in either
+   engagement rate (p=0.27) or pre-clamp magnitude (p=0.71). The apparent
+   3-interval rise that prompted the test reversed once more data arrived.
+7. **Locked** as `full_res_norm_type: affine_clamp`, `clamp_bound: 8.0`, pinned
+   by regression tests, active in B0 from iteration 0.
+
+**The Q-A control is the reference that makes this legible.** It ran 140k
+iterations on the identical schedule with full LayerNorm and survived spikes of
+61, 293, 135, 1580, 1832 and 2360 — so *spikes are depth-general*, and what N-F
+changed was not whether they occur but whether they are survivable.
+
 ### Process lessons
 
 **A per-step trace that logs only the last micro-batch is blind to the anomaly

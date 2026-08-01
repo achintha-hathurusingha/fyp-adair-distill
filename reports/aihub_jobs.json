@@ -1,5 +1,12 @@
 {
   "jobs": {
+    "w16_b14_FC": {
+      "compile": "jgk8dlzng",
+      "config": "w16_b14",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b14_FC.onnx",
+      "quantize": "jgznwxexg",
+      "variant": "FC"
+    },
     "w16_b14_NE": {
       "compile": "jgk8yq7yg",
       "config": "w16_b14",
@@ -29,6 +36,13 @@
         "peak_memory_mb": 97.609375
       },
       "variant": "NF"
+    },
+    "w16_b28_FC": {
+      "compile": "j5qvw78og",
+      "config": "w16_b28",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b28_FC.onnx",
+      "quantize": "j5w4xdomg",
+      "variant": "FC"
     },
     "w16_b28_NE": {
       "compile": "j56w1zevg",
@@ -60,6 +74,13 @@
       },
       "variant": "NF"
     },
+    "w16_b8_FC": {
+      "compile": "jgll70zmg",
+      "config": "w16_b8",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_b8_FC.onnx",
+      "quantize": "jpey2r9v5",
+      "variant": "FC"
+    },
     "w16_b8_NE": {
       "compile": "jgo8vnk4p",
       "config": "w16_b8",
@@ -89,6 +110,13 @@
         "peak_memory_mb": 97.7734375
       },
       "variant": "NF"
+    },
+    "w16_sidd_FC": {
+      "compile": "j56wv3jyg",
+      "config": "w16_sidd",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w16_sidd_FC.onnx",
+      "quantize": "jg9d83v85",
+      "variant": "FC"
     },
     "w16_sidd_NE": {
       "compile": "jgzn7jozg",
@@ -120,6 +148,13 @@
       },
       "variant": "NF"
     },
+    "w24_b14_FC": {
+      "compile": "jp36843np",
+      "config": "w24_b14",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b14_FC.onnx",
+      "quantize": "j5796jz9g",
+      "variant": "FC"
+    },
     "w24_b14_NE": {
       "compile": "j579dl0qg",
       "config": "w24_b14",
@@ -149,6 +184,13 @@
         "peak_memory_mb": 98.67578125
       },
       "variant": "NF"
+    },
+    "w24_b28_FC": {
+      "compile": "jgo8m10kp",
+      "config": "w24_b28",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b28_FC.onnx",
+      "quantize": "jp438xq15",
+      "variant": "FC"
     },
     "w24_b28_NE": {
       "compile": "jpxx16njp",
@@ -180,6 +222,12 @@
       },
       "variant": "NF"
     },
+    "w24_b8_FC": {
+      "config": "w24_b8",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_b8_FC.onnx",
+      "quantize": "jgd20rwz5",
+      "variant": "FC"
+    },
     "w24_b8_NE": {
       "compile": "jprwy22v5",
       "config": "w24_b8",
@@ -209,6 +257,12 @@
         "peak_memory_mb": 100.46875
       },
       "variant": "NF"
+    },
+    "w24_sidd_FC": {
+      "config": "w24_sidd",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w24_sidd_FC.onnx",
+      "quantize": "j5m84wr9p",
+      "variant": "FC"
     },
     "w24_sidd_NE": {
       "compile": "jgk8yqqyg",
@@ -240,6 +294,12 @@
       },
       "variant": "NF"
     },
+    "w32_b14_FC": {
+      "config": "w32_b14",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b14_FC.onnx",
+      "quantize": "jp2ej78qp",
+      "variant": "FC"
+    },
     "w32_b14_NE": {
       "compile": "jgllk22eg",
       "config": "w32_b14",
@@ -269,6 +329,12 @@
         "peak_memory_mb": 97.8125
       },
       "variant": "NF"
+    },
+    "w32_b28_FC": {
+      "config": "w32_b28",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b28_FC.onnx",
+      "quantize": "jp06k1ynp",
+      "variant": "FC"
     },
     "w32_b28_NE": {
       "compile": "jp36m11xp",
@@ -300,6 +366,12 @@
       },
       "variant": "NF"
     },
+    "w32_b8_FC": {
+      "config": "w32_b8",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_b8_FC.onnx",
+      "quantize": "jprw94k75",
+      "variant": "FC"
+    },
     "w32_b8_NE": {
       "compile": "jpv7wrr7p",
       "config": "w32_b8",
@@ -329,6 +401,12 @@
         "peak_memory_mb": 97.86328125
       },
       "variant": "NF"
+    },
+    "w32_sidd_FC": {
+      "config": "w32_sidd",
+      "onnx": "C:\\Users\\User\\Documents\\FYP\\fyp-adair-distill\\runs\\norm_sweep\\w32_sidd_FC.onnx",
+      "quantize": "jp8183oo5",
+      "variant": "FC"
     },
     "w32_sidd_NE": {
       "compile": "j579dj2ng",
