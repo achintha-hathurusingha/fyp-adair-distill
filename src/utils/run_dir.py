@@ -74,3 +74,31 @@ def write_metrics(run_dir: str | Path, metrics: dict[str, Any]) -> None:
     """Write ``metrics.json`` into the run directory."""
     with (Path(run_dir) / "metrics.json").open("w", encoding="utf-8") as fh:
         json.dump(metrics, fh, indent=2, sort_keys=True)
+
+
+def record_resume(run_dir: str | Path, config: dict[str, Any], *,
+                  iteration: int, reason: str = "") -> Path:
+    """Append a provenance record for a resumed run.
+
+    A resume reuses the existing run directory, so ``config.yaml`` and
+    ``git_commit.txt`` keep describing the ORIGINAL launch. When a run is
+    resumed after a code or config change — which is exactly why B0 seed 0 was
+    resumed at iteration 5000, to pick up the bounded image cache — the
+    directory would otherwise misrepresent what actually produced the weights.
+
+    Each resume appends one JSON line to ``resumes.jsonl`` recording the config
+    and commit *in force from that iteration onward*. The original files are
+    never rewritten: they are the record of the first launch.
+    """
+    run_dir = Path(run_dir)
+    record = {
+        "resumed_at": datetime.now().isoformat(timespec="seconds"),
+        "from_iteration": iteration,
+        "git_commit": _git_commit(),
+        "reason": reason,
+        "config": config,
+    }
+    path = run_dir / "resumes.jsonl"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, sort_keys=True, default=str) + "\n")
+    return path

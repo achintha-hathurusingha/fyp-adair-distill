@@ -145,6 +145,9 @@ class Trainer:
         self.base_lr = opt_cfg.get("lr", 1e-3)
 
         tr = cfg.get("train", {})
+        # Micro-batches accumulated per optimizer step. Effective batch is
+        # data.batch_size * accum_steps; see findings F8.
+        self.accum_steps = max(1, int(tr.get("accum_steps", 1)))
         self.amp = tr.get("amp", True)
         self.val_every = tr.get("val_every", 2_000)
         self.ckpt_every = tr.get("ckpt_every", 2_000)
@@ -193,7 +196,17 @@ class Trainer:
 
     @torch.no_grad()
     def validate(self) -> dict[str, float]:
-        """Evaluate EMA weights on BSD68 through the LOCKED harness."""
+        """Evaluate EMA weights on BSD68 through the LOCKED harness.
+
+        Returns an empty dict when no ``val_root`` was supplied. Note that
+        validation always runs on the final iteration regardless of
+        ``val_every``, so this path is reachable in any run configured without
+        a validation set — it is warned about rather than allowed to raise deep
+        inside the training loop.
+        """
+        if self.val_root is None:
+            self.log.warning("no val_root configured — skipping validation")
+            return {}
         backup = self.ema.copy_to(self.model)
         self.model.eval()
         try:
@@ -227,6 +240,16 @@ class Trainer:
         # on. Tracking the max between logs removes that blind spot.
         max_gnorm = 0.0
         clip_hits = 0
+        # Anchors the clip-hit rate to the interval actually covered, which is
+        # shorter than val_every on the first log after a resume.
+        last_log_it = it
+
+        # Gradient accumulation. `it` counts OPTIMIZER STEPS, not micro-batches,
+        # so `total_iters` and the LR schedule mean the same thing whether or not
+        # accumulation is active — which is what keeps a run at micro-batch 16 x
+        # 2 comparable with one at native batch 32 (findings F8).
+        micro = 0
+        self.optimizer.zero_grad(set_to_none=True)
 
         while it < self.total_iters:
             for degraded, clean, _sigma in self.loader:
@@ -243,8 +266,29 @@ class Trainer:
                     pred = self.model(degraded)
                     loss = self.criterion(pred.float(), clean)
 
-                self.optimizer.zero_grad(set_to_none=True)
-                loss.backward()
+                # Divide so accumulated gradients AVERAGE over the effective
+                # batch rather than summing — otherwise the effective learning
+                # rate scales with accum_steps.
+                (loss / self.accum_steps).backward()
+                loss_accum += float(loss.detach())
+                n_accum += 1
+                micro += 1
+
+                if not torch.isfinite(loss):
+                    self.log.error(
+                        f"non-finite loss at optimizer step {it} "
+                        f"(micro-batch {micro}) — diverged")
+                    self.state.history.append(
+                        {"iteration": it, "diverged": True,
+                         "loss": float("nan"), "max_grad_norm": max_gnorm,
+                         "clip_hits": clip_hits})
+                    self._dump_history()
+                    return self.state
+
+                if micro < self.accum_steps:
+                    continue                      # keep accumulating
+
+                # --- one optimizer step, on the full effective batch ---
                 gn = grad_norm(self.model)
                 max_gnorm = max(max_gnorm, gn)
                 if self.grad_clip:
@@ -253,29 +297,23 @@ class Trainer:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(),
                                                    self.grad_clip)
                 self.optimizer.step()
+                self.optimizer.zero_grad(set_to_none=True)
                 self.ema.update(self.model)
+                micro = 0
 
-                loss_accum += float(loss.detach())
-                n_accum += 1
                 it += 1
                 self.state.iteration = it
-
-                if not torch.isfinite(loss):
-                    self.log.error(
-                        f"non-finite loss at iteration {it} — diverged "
-                        f"(max grad norm since last log {max_gnorm:.4f}, "
-                        f"clip hits {clip_hits})")
-                    self.state.history.append(
-                        {"iteration": it, "diverged": True, "loss": float("nan"),
-                         "max_grad_norm": max_gnorm, "clip_hits": clip_hits})
-                    self._dump_history()
-                    return self.state
 
                 if it % self.val_every == 0 or it == self.total_iters:
                     acts = activation_stats(self.model, degraded[:1])
                     metrics = self.validate()
+                    if not metrics:
+                        metrics = {"psnr": float("nan"), "ssim": float("nan")}
                     peak = (torch.cuda.max_memory_allocated() / 2**30
                             if self.device == "cuda" else 0.0)
+                    # Both counters cover only the interval since the last log
+                    # (they are reset below), so the rate is per-interval.
+                    steps_since = it - last_log_it
                     row = {
                         "iteration": it,
                         "lr": lr,
@@ -283,6 +321,7 @@ class Trainer:
                         "grad_norm": gn,
                         "max_grad_norm": max_gnorm,
                         "clip_hits": clip_hits,
+                        "clip_rate": clip_hits / max(1, steps_since),
                         "peak_vram_gb": peak,
                         "elapsed_s": time.time() - t0,
                         **metrics,
@@ -292,9 +331,12 @@ class Trainer:
                     self.log.info(
                         f"it {it:6d}  loss {row['loss']:.5f}  psnr {metrics['psnr']:.3f}  "
                         f"ssim {metrics['ssim']:.4f}  gnorm {gn:.3f}  "
-                        f"maxgn {max_gnorm:.3f}  vram {peak:.2f}GB")
+                        f"maxgn {max_gnorm:.3f}  "
+                        f"clip {clip_hits}/{steps_since} ({row['clip_rate']:.1%})  "
+                        f"vram {peak:.2f}GB")
                     loss_accum, n_accum = 0.0, 0
                     max_gnorm, clip_hits = 0.0, 0
+                    last_log_it = it
                     self._dump_history()
 
                     if metrics["psnr"] > self.state.best_psnr:

@@ -12,6 +12,7 @@ three sigmas.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -39,7 +40,8 @@ class DenoiseTrainDataset(Dataset):
 
     def __init__(self, roots: list[str | Path], *, sigmas=(15, 25, 50),
                  patch_size: int = 256, base_seed: int = 0,
-                 cache_images: bool = True, length: int | None = None) -> None:
+                 cache_images: bool = True, length: int | None = None,
+                 cache_budget_gb: float = 0.75) -> None:
         self.files: list[Path] = []
         for root in roots:
             root = Path(root)
@@ -56,7 +58,20 @@ class DenoiseTrainDataset(Dataset):
         self.base_seed = base_seed
         self.length = length or len(self.files) * len(self.sigmas)
         # Decoding dominates for small models; cache to keep the GPU fed.
-        self._cache: dict[int, np.ndarray] | None = {} if cache_images else None
+        #
+        # The cache MUST be bounded. Workers are persistent and each holds its
+        # own copy, so an unbounded dict converges on num_workers x the full
+        # decoded training set — 18.4 GB for 6 workers on 5,144 images, against
+        # 15.7 GB of RAM. That does not fail fast: the machine pages, the GPU
+        # starves, and the run dies hours in. Evict LRU against a byte budget.
+        if cache_budget_gb <= 0:
+            raise ValueError(
+                f"cache_budget_gb must be positive, got {cache_budget_gb}. "
+                "Pass cache_images=False to disable caching instead.")
+        self._cache: OrderedDict[int, np.ndarray] | None = (
+            OrderedDict() if cache_images else None)
+        self._cache_budget = int(cache_budget_gb * 2 ** 30)
+        self._cache_bytes = 0
 
     def __len__(self) -> int:
         return self.length
@@ -64,10 +79,18 @@ class DenoiseTrainDataset(Dataset):
     def _image(self, idx: int) -> np.ndarray:
         file_idx = idx % len(self.files)
         if self._cache is not None and file_idx in self._cache:
+            self._cache.move_to_end(file_idx)      # mark as recently used
             return self._cache[file_idx]
         img = load_rgb_uint8(self.files[file_idx], base=1)  # no crop for training
         if self._cache is not None:
-            self._cache[file_idx] = img
+            # A single image larger than the whole budget would otherwise be
+            # inserted and immediately evicted every time; skip caching it.
+            if img.nbytes <= self._cache_budget:
+                self._cache[file_idx] = img
+                self._cache_bytes += img.nbytes
+                while self._cache_bytes > self._cache_budget:
+                    _, evicted = self._cache.popitem(last=False)   # LRU
+                    self._cache_bytes -= evicted.nbytes
         return img
 
     def __getitem__(self, idx: int):
@@ -96,10 +119,17 @@ class DenoiseTrainDataset(Dataset):
 def build_train_loader(roots: list[str | Path], *, batch_size: int = 32,
                        patch_size: int = 256, sigmas=(15, 25, 50),
                        num_workers: int = 8, seed: int = 0,
-                       length: int | None = None) -> torch.utils.data.DataLoader:
-    """Build the training loader, tuned to avoid being dataloader-bound."""
+                       length: int | None = None,
+                       cache_budget_gb: float = 0.75) -> torch.utils.data.DataLoader:
+    """Build the training loader, tuned to avoid being dataloader-bound.
+
+    ``cache_budget_gb`` is PER WORKER — total resident cache is roughly
+    ``num_workers * cache_budget_gb``. Size it against real RAM, not the
+    dataset.
+    """
     dataset = DenoiseTrainDataset(roots, sigmas=sigmas, patch_size=patch_size,
-                                  base_seed=seed, length=length)
+                                  base_seed=seed, length=length,
+                                  cache_budget_gb=cache_budget_gb)
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=True,
         num_workers=num_workers, pin_memory=True, drop_last=True,

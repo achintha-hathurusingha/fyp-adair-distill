@@ -29,17 +29,30 @@ data:
   # AdaIR's own training patch size (options.py:15). 256 exceeds 6 GB at these
   # batch sizes on the development GPU; see reports/overnight_log.md.
   patch_size: 128
-  batch_size: 16          # w16_sidd peaks at 2.11 GB here; 32 OOMs on 6 GB
+  batch_size: 16          # MICRO-batch. w16_sidd peaks at 2.11 GB; 32 OOMs on 6 GB.
+                          # Effective batch is 32 via accum_steps below (F8).
   sigmas: [15, 25, 50]
   mixed_task: true        # balance degradation types WITHIN each batch
   num_workers: 6
+  # PER WORKER decoded-image cache. Workers are persistent and each holds its
+  # own copy, so the resident total is num_workers x this. Unbounded, it
+  # converges on 6 x 3.07 GB = 18.4 GB against 15.7 GB of RAM -- the machine
+  # pages, the GPU starves, and the run dies hours in rather than failing fast.
+  # 0.75 x 6 = 4.5 GB resident, which leaves headroom for the trainer and OS.
+  cache_budget_gb: 0.75
 
 optim:
   name: adamw
   lr: 1.0e-3
   weight_decay: 1.0e-4
   betas: [0.9, 0.9]
-  grad_clip: null         # unused at these gradient magnitudes (~0.1); see F6
+  # Loose clip as insurance, NOT a fix for a known problem. w16_sidd showed
+  # spikes to 1.24-1.62 over 10k iterations with no clipping and converged
+  # cleanly; B0 runs 300k, so this bounds a rare tail event that 10k could not
+  # rule out. Deliberately 8.0, far above observed spikes, so it should almost
+  # never fire -- NOT the 1.0 from the Q-E ladder, which targeted a different
+  # failure mode (gradual drift, not spikes) and would be needlessly tight here.
+  grad_clip: 8.0
 
 schedule:
   name: cosine
@@ -48,6 +61,8 @@ schedule:
   min_lr: 1.0e-6
 
 train:
+  # 16 x 2 = effective batch 32, matching the S-arm ablation (findings F8).
+  accum_steps: 2
   ema_decay: 0.999
   amp: true               # bfloat16
   val_every: 5000
