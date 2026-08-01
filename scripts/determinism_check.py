@@ -54,6 +54,9 @@ def main() -> None:
     ap.add_argument("--tag", required=True, help="label for this run's output")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out-root", default="runs/determinism")
+    ap.add_argument("--num-workers", type=int, default=None,
+                    help="override dataloader workers; results MUST NOT depend "
+                         "on this (the dataset seeds per-index, not per-worker)")
     args = ap.parse_args()
 
     seed_everything(args.seed)
@@ -76,7 +79,9 @@ def main() -> None:
         [data_root / "Train" / "Denoise"],
         batch_size=micro_bs, patch_size=cfg["data"]["patch_size"],
         sigmas=tuple(cfg["data"]["sigmas"]),
-        num_workers=cfg["data"]["num_workers"], seed=args.seed,
+        num_workers=(args.num_workers if args.num_workers is not None
+                     else cfg["data"]["num_workers"]),
+        seed=args.seed,
         length=args.iters * accum * micro_bs,
         cache_budget_gb=cfg["data"]["cache_budget_gb"])
 
@@ -95,6 +100,8 @@ def main() -> None:
         "seed": args.seed,
         "iters": args.iters,
         "device": args.device,
+        "num_workers": (args.num_workers if args.num_workers is not None
+                        else cfg["data"]["num_workers"]),
         "torch": torch.__version__,
         "gpu": torch.cuda.get_device_name(0) if args.device == "cuda" else "cpu",
         "model_sha256": model_fp,
