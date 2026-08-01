@@ -629,6 +629,30 @@ gradient from ever propagating. `intro` falls from 2.7e7 to an unremarkable
 origin. Adaptive Gradient Clipping was considered as a complementary
 network-wide fix and is **parked on this evidence**, not on preference.
 
+### CONFOUND: the two validation runs use different gradient clips
+
+| run | `grad_clip` | full-res norm |
+|---|---|---|
+| Fix-C | **1.0** | `affine_clamp(8.0)` |
+| Q-A control | **8.0** | LayerNorm2d |
+
+Fix-C inherited the tightened 1.0 from the retry attempted before `dec3` was
+identified as the mechanism; Q-A kept the original 8.0.
+
+**This affects `max_grad_norm` comparisons between the two runs and nothing
+else.** `premax` and `clamp_engage_rate` are measured inside the normalisation
+layer, before any gradient clipping, so the threshold cannot touch them.
+
+Direction of the effect, stated so it is not misread later: `max_grad_norm` is
+recorded *before* clipping, so a tighter threshold does not lower the recorded
+number directly — but it does produce smaller optimizer steps, which should if
+anything keep the model in a less extreme region and suppress *subsequent* large
+gradients. So Fix-C exceeding Q-A's `maxgn` **despite** the tighter clip is mild
+evidence *against* the asymmetry being the explanation, not a reason to discount
+the observation. The runs were not restarted over this: the data already
+collected is real, and the correct response is documenting the asymmetry rather
+than discarding results.
+
 ### Monitoring the bound's headroom
 
 Engagement *rate* cannot distinguish "catches a stable 1264-magnitude event
