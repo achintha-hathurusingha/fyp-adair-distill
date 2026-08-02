@@ -845,6 +845,85 @@ caught this before B0 launched.
 
 ---
 
+## F10. B0 collapses on low-noise input — a deployment-blocking inference failure
+
+**B0 destroys any image with sigma below about 9.** Found by running the model on
+real photographs as downloaded (no synthetic noise added) and looking at the
+output: a saturated rainbow checkerboard instead of an image.
+
+| sigma | input PSNR | B0 | AdaIR | B0 output std | B0 mean change |
+|---|---|---|---|---|---|
+| 0 | inf | **4.25** | 41.58 | 127.2 | 126.0 |
+| 5 | 34.69 | **4.20** | 40.43 | 127.0 | 127.2 |
+| 8 | 30.73 | **4.29** | 39.75 | 127.5 | 125.0 |
+| **10** | 28.84 | **38.82** | 39.42 | 92.8 | 6.9 |
+| 15 | 25.43 | 38.35 | 38.44 | 92.6 | 9.9 |
+| 50 | 15.69 | 33.52 | 33.62 | 92.3 | 30.5 |
+
+Across ten real photographs the mean absolute change B0 applies to a clean input
+is **125.4 / 255**; AdaIR's is **1.88 / 255**. The teacher correctly leaves a
+clean image alone. The student replaces it with noise.
+
+### It is a cliff, not a slope
+
+sigma 8 fails at 4.29 dB, sigma 10 works at 38.82 dB. Both are *outside* the
+training set {15, 25, 50}, so this is not simply "unseen sigma" — sigma 10 is
+unseen and fine. The behaviour is bistable.
+
+### Mechanism: compounding amplification through the enc3 residual stack
+
+| block | sigma=0 max abs | sigma=15 max abs | ratio |
+|---|---|---|---|
+| enc3.blk0 | 35.03 | 41.64 | 0.8x |
+| enc3.blk1 | 161 | 41.6 | 3.9x |
+| enc3.blk2 | 1147 | 43.12 | 26.6x |
+| enc3.blk3 | 3520 | 42.81 | 82.2x |
+| enc3.blk4 | 4743 | 42.3 | **112.1x** |
+| enc3.blk7 | 4122 | 41.48 | 99.4x |
+
+At sigma 15 every block sits flat near 42. At sigma 0 each block multiplies the
+last until the output saturates at +-600 and clips to a checkerboard.
+
+**Ruled out:**
+
+- **Not F9.** That was `dec3`, the unnormalised full-resolution stage. This
+  starts at `enc3`, a deep stage with real LayerNorm. The clamp cannot reach it,
+  and indeed does not prevent this.
+- **Not LayerNorm's epsilon.** Sweeping eps 1e-6 -> 1e-2 changes nothing
+  (4.25 dB throughout). Variance entering `enc3.norm1` is 5.96 at sigma 0 versus
+  7.00 at sigma 15 — both healthy, nowhere near zero. This hypothesis was tested
+  and is wrong.
+- **Not the residual gates.** |beta| 0.2-0.6, |gamma| 0.2-0.5 — modest.
+
+It is F6's activation-scale growth, appearing at **inference** on
+out-of-distribution input rather than during training.
+
+### Why it matters
+
+A deployed denoiser receives whatever the camera produces, including clean and
+near-clean frames. On those, this model outputs garbage. **INT8 latency and
+BSD68 PSNR are both irrelevant if the model cannot be pointed at an arbitrary
+photograph.** Every benchmark number in this project is computed at sigma >= 15,
+which is exactly the region where the failure is invisible.
+
+### Likely fix — untested
+
+Include sigma 0 (and low sigma) in the training distribution. AdaIR's own
+protocol trains on fixed sigmas too, yet AdaIR does not fail this way, so the
+training distribution may not be the whole story and the fix needs verifying
+rather than assuming.
+
+### Process lesson
+
+**I reported the opposite of the truth from a number I had computed but not
+read.** The notebook stated "both models leave an already-clean image largely
+alone, which is the correct behaviour" while the value printed directly above it
+was 125.4/255. The failure was found by a reader looking at the figure, not by
+me looking at my own output. Compute a number, then actually read it before
+writing the sentence that interprets it.
+
+---
+
 ## AI Hub job IDs (verifiable provenance)
 
 Every on-device number in this repository traces to a job below. Job pages are
