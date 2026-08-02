@@ -661,6 +661,37 @@ give the same rate. `AffineClampNorm2d` therefore also records the maximum
 **pre-clamp** magnitude per interval (logged as `premax`), so a bound that is
 quietly running out of headroom over a long run is visible rather than inferred.
 
+### Fix-C validation run — CLOSED (superseded, not abandoned)
+
+The dedicated Fix-C validation run reached **245,000 iterations** and is closed.
+Its evidence is superseded by B0 seed 0, which runs the same configuration
+directly as the real baseline — the same relationship G2 has to G3 elsewhere in
+this project: retained as corroboration, no longer the primary source.
+
+| | |
+|---|---|
+| final iteration | 245,000 |
+| final PSNR / SSIM | **31.3158** / 0.8797 |
+| skipped steps | **0** |
+| clamp intervals recorded | 43 |
+| `premax`, last 8 intervals | 11.2, 11.2, 11.5, 11.9, 13.1, 11.4, 10.7, 12.2 |
+| `clampeng`, last 8 intervals | 0.081% - 0.108% |
+| `premax` overall | min 9.13, median 12.65, max 1.33e5 |
+
+Two things worth keeping from it.
+
+**It tracked Q-A within 0.01 dB throughout** — 31.218 vs 31.222 at 50k, 31.268
+vs 31.278 at 100k, 31.297 vs 31.305 at 150k, 31.309 vs 31.321 at 200k. Well
+inside the 0.10 dB threshold that governed the original norm decision.
+
+**The `premax` series settled.** The alarming stretch was 40k-45k (8500, 5705),
+which triggered a criterion-B stop and, at three points, looked like a clean
+rising trend with tau = 1.00. It reversed. Over the last eight intervals
+`premax` sits in a **stationary 10-13 band** and engagement holds near 0.1%.
+The heavy tail is real — the overall maximum is 1.33e5 — but it is stationary,
+which is exactly what the pre-committed Mann-Kendall test concluded from eight
+points and what 43 intervals now show directly.
+
 ### Closing summary — the whole chain
 
 For anyone reading this cold:
