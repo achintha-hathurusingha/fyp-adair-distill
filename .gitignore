@@ -38,3 +38,9 @@ dist/
 # downloaded archives (regenerable)
 /data/_dl_*/
 /runs_devon
+
+# demo notebook intermediates (regenerable via scripts/build_demo_data.py)
+/runs/demo_nb/real/*.npy
+/runs/int8_demo/*.npy
+/runs/int8_demo/*.onnx
+/runs/demo_nb/*.onnx
