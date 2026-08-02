@@ -661,6 +661,34 @@ give the same rate. `AffineClampNorm2d` therefore also records the maximum
 **pre-clamp** magnitude per interval (logged as `premax`), so a bound that is
 quietly running out of headroom over a long run is visible rather than inferred.
 
+### The lock, as executed
+
+| step | outcome |
+|---|---|
+| normalization | `full_res_norm_type: affine_clamp`, `clamp_bound: 8.0` in `configs/model/nafnet_locked.yaml` |
+| regression tests | 7 new in `tests/test_norm_lock.py`; the pre-existing lock tests were updated and **failed first**, catching that the B0 arm still built plain `affine` |
+| family re-selection | **UNCHANGED** — all 12 configs re-profiled under the locked variant |
+| B0 | clamp active from **iteration 0** in both the arm spec and the reviewed YAML, not retrofitted; `grad_clip` left at 1.0, the value Fix-C was validated under |
+| smoke test | 200 iterations on the final config: loss 0.053, `clampeng` 0.00%, `premax` 1.703 — clamp inert in early training |
+
+Family, on measured Fix-C latency (S24, INT8, profile-then-select path):
+
+| arm | config | params | GMACs | ms |
+|---|---|---|---|---|
+| S | `w16_b8` | 2.44M | 2.13 | 1.577 |
+| M | `w16_sidd` | 7.37M | 4.13 | 2.885 |
+| L | `w24_b28` | 9.68M | 9.05 | 3.328 |
+
+Span 2.69x (N-F: 2.67x), all invariants pass. Clamp cost across the grid: mean
+**+0.10%**, range -0.57% to +1.08% — several configs measure *faster*, which is
+AI Hub run-to-run noise. The honest reading is that the cost sits **below
+measurement noise everywhere**, not that a clamp accelerates anything.
+
+The re-run was expected to be a formality and was. It was still necessary: the
+previous norm change (N-A -> N-F) **did** move M from `w24_b8` to `w16_sidd`, so
+"small delta implies same family" is an inference, not a measurement. Detail in
+`reports/student_sweep.md` and `reports/family_reselection_fc.md`.
+
 ### Fix-C validation run — CLOSED (superseded, not abandoned)
 
 The dedicated Fix-C validation run reached **245,000 iterations** and is closed.
