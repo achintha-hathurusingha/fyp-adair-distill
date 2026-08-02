@@ -31,12 +31,46 @@ arch:
   full_res_norm_type: affine_clamp   # F9: plain affine here killed B0
   clamp_bound: 8.0                   # active from iteration 0, not retrofitted
 
+  # Deep-stage clamp insurance. enc3 is 8 blocks at 128 channels and is where a
+  # low-noise input gets amplified (F10). Measured on the trained B0-denoise
+  # weights over BSD68, max |enc3 norm output| is 4.7-4.8 at the trained sigmas
+  # but 11.2 at sigma 0 and 5 -- 2.4x higher on inputs the model never saw,
+  # which is F10 visible at the activation level. A bound of 32 sits 2.9x above
+  # even that worst case, so it is inert in every state observed so far.
+  #
+  # CAVEAT, stated because it would otherwise be assumed away: LayerNorm already
+  # bounds its own output structurally, which is why enc3 reached only 7.59
+  # during the F9 divergence while the unnormalised dec3 reached 5.6e6. The
+  # expected benefit here is therefore small; it ships for the F9 reason, that a
+  # clamp bounds unconditionally and distribution coverage does not.
+  #
+  # LATENCY: this changes the exported graph. The 2.885 ms measured for the
+  # locked M arm describes a model WITHOUT it. Re-profile on AI Hub before
+  # quoting any INT8 number for B0-v2.
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+
 data:
   patch_size: 128
   batch_size: 16          # MICRO-batch, effective 32 via accum_steps (F8).
                           # 16 = 3 tasks x 5 + 1 rotating extra; see sampler.py
                           # for how the leftover slot is shared out fairly.
+  # Noise levels. `sigmas` is the protocol's discrete set and is what the
+  # EVALUATION harness uses; training samples continuously instead.
   sigmas: [15, 25, 50]
+
+  # F10 FIX. B0-denoise saw only {15, 25, 50} and had no coverage whatsoever
+  # below 15. Given a nearly-clean input it applied the denoising it had always
+  # been rewarded for and destroyed the image — 125.37/255 mean absolute error
+  # against AdaIR's 1.88/255. Continuous sampling closes the gap in coverage.
+  #
+  # Upper bound 55, slightly above the protocol's 50, so sigma=50 sits inside
+  # the sampled interval rather than on its edge.
+  sigma_range: [0.0, 55.0]
+  # Uniform sampling gives exactly-clean input measure zero, and clean input is
+  # the worst case F10 actually exhibited. 5% of denoise samples are the exact
+  # identity task, anchoring the mapping at the end of the range that broke.
+  clean_prob: 0.05
 
   mixed_task: true        # LOAD-BEARING since F11 — selects the balanced loader
   # Task roots, relative to data_root. Mandatory when mixed_task is true; there

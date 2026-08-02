@@ -263,6 +263,79 @@ def test_caching_off_returns_the_same_samples(roots) -> None:
         assert torch.equal(cached[idx][0], uncached[idx][0])
 
 
+# -------------------------------------------- continuous sigma (the F10 fix)
+
+
+def test_continuous_sigma_covers_the_range_discrete_training_missed(roots) -> None:
+    """The F10 fix: B0-denoise had zero coverage below sigma 15.
+
+    Given a nearly-clean input it applied the denoising it had always been
+    rewarded for and destroyed the image (125.37/255 MAE against AdaIR's 1.88).
+    """
+    ds = _ds(roots, sigma_range=(0.0, 55.0), clean_prob=0.05)
+    denoise = ds.task_ranges()["denoise"]
+    sigmas = [ds[i][2]["sigma"] for i in denoise]
+    assert min(sigmas) >= 0.0 and max(sigmas) <= 55.0
+    assert sum(1 for s in sigmas if s < 15.0) > 0, "still no coverage below 15"
+    assert len(set(sigmas)) > len(denoise) // 2, "sigma is not really continuous"
+
+
+def test_clean_prob_puts_real_mass_on_exactly_zero(roots) -> None:
+    """sigma=0 must be sampled exactly, not merely approached.
+
+    Under uniform sampling the clean case has measure zero, and clean input is
+    the worst case F10 exhibited.
+    """
+    ds = _ds(roots, length=900, sigma_range=(0.0, 55.0), clean_prob=0.25)
+    sigmas = [ds[i][2]["sigma"] for i in ds.task_ranges()["denoise"]]
+    zeros = sum(1 for s in sigmas if s == 0.0)
+    assert 0.15 < zeros / len(sigmas) < 0.35, f"{zeros}/{len(sigmas)} exactly zero"
+
+
+def test_sigma_zero_yields_an_untouched_input(roots) -> None:
+    """At sigma=0 the sample is the identity task: input IS the target."""
+    ds = _ds(roots, sigma_range=(0.0, 55.0), clean_prob=1.0 - 1e-9)
+    degraded, clean, meta = ds[ds.task_ranges()["denoise"].start]
+    assert meta["sigma"] == 0.0
+    assert torch.equal(degraded, clean), "sigma=0 altered the image"
+
+
+def test_discrete_mode_draws_nothing_from_the_rng(roots) -> None:
+    """Adding continuous sampling must not perturb the discrete path.
+
+    B0-denoise's noise stream has to stay reproducible; a stray draw would shift
+    every crop and flip after it.
+    """
+    ds = _ds(roots)
+    assert ds.sigma_range is None
+    sigmas = [ds[i][2]["sigma"] for i in list(ds.task_ranges()["denoise"])[:6]]
+    assert sigmas == [15.0, 25.0, 50.0, 15.0, 25.0, 50.0]
+
+
+def test_continuous_sigma_is_deterministic(roots) -> None:
+    kw = dict(sigma_range=(0.0, 55.0), clean_prob=0.05)
+    a, b = _ds(roots, **kw), _ds(roots, **kw)
+    idx = list(a.task_ranges()["denoise"])[:20]
+    assert [a[i][2]["sigma"] for i in idx] == [b[i][2]["sigma"] for i in idx]
+
+
+@pytest.mark.parametrize("bad", [(-1.0, 55.0), (55.0, 55.0), (55.0, 10.0)])
+def test_invalid_sigma_range_rejected(roots, bad) -> None:
+    with pytest.raises(ValueError, match="sigma_range must be"):
+        _ds(roots, sigma_range=bad)
+
+
+def test_clean_prob_without_a_range_is_rejected(roots) -> None:
+    """No silent no-op: with discrete cycling there is no draw to displace."""
+    with pytest.raises(ValueError, match="clean_prob requires sigma_range"):
+        _ds(roots, clean_prob=0.1)
+
+
+def test_clean_prob_out_of_bounds_rejected(roots) -> None:
+    with pytest.raises(ValueError, match=r"clean_prob must be in \[0, 1\)"):
+        _ds(roots, sigma_range=(0.0, 55.0), clean_prob=1.0)
+
+
 # ------------------------------------------------- end to end through a loader
 
 

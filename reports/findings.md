@@ -913,6 +913,46 @@ protocol trains on fixed sigmas too, yet AdaIR does not fail this way, so the
 training distribution may not be the whole story and the fix needs verifying
 rather than assuming.
 
+### Addendum — the failure is visible in enc3's activations
+
+Measured on the trained B0-denoise weights (seed 0, `best.pth`) over 20 BSD68
+images, hooking every LayerNorm in encoder stage 3:
+
+| sigma | max abs enc3 norm output | where |
+|------:|-------------------------:|-------|
+| 0     | **11.181**               | block 4, norm1 |
+| 5     | **11.091**               | block 4, norm1 |
+| 15    | 4.790                    | block 0, norm2 |
+| 25    | 4.816                    | block 0, norm2 |
+| 50    | 4.703                    | block 0, norm2 |
+| 55    | 4.686                    | block 0, norm2 |
+
+Activation magnitude at the trained sigmas is flat at ~4.7-4.8 and **2.4x
+higher** on the inputs the model has never seen. The response is not merely
+wrong at the output, it is anomalous halfway through the encoder — so the
+low-noise regime is a genuinely different operating point for the network, not a
+mild extrapolation of the trained one.
+
+Two consequences. First, this is a cheap early indicator: a run can be checked
+for the F10 pathology by watching enc3's activation peak at sigma 0 against its
+peak at sigma 25, without evaluating image quality at all. Second, it sets the
+`enc_clamp_stages` bound — 32 sits 2.9x above even the sigma-0 peak, so the
+clamp is inert in every state observed so far.
+
+### Fix as implemented (B0-v2, not yet validated)
+
+Continuous sigma sampling on `[0, 55]` with 5% of denoise samples drawn at
+exactly sigma = 0 (`sigma_range` / `clean_prob` in
+`configs/train/b0v2_multitask.yaml`). Uniform sampling alone gives the clean
+case measure zero, and clean input is the worst case actually exhibited.
+
+The input signature is unchanged — `(1,3,H,W)` — so the ONNX export, the QNN
+binaries and every AI Hub latency number measured so far remain valid.
+FFDNet-style noise-level conditioning was considered and **rejected for now**:
+it would add a fourth input channel and invalidate all of them. If B5's sigma
+sweep shows widening alone does not close the cliff, that is a result to report,
+not a licence to escalate silently.
+
 ### Process lesson
 
 **I reported the opposite of the truth from a number I had computed but not

@@ -43,10 +43,12 @@ class NAFBlock(nn.Module):
 
     def __init__(self, c: int, dw_expand: int = 2, ffn_expand: int = 2,
                  norm_type: str = "layernorm2d",
-                 clamp_bound: float | None = None) -> None:
+                 clamp_bound: float | None = None,
+                 deep_clamp_bound: float | None = None) -> None:
         super().__init__()
         dw = c * dw_expand
-        self.norm1 = build_norm(norm_type, c, clamp_bound=clamp_bound)
+        self.norm1 = build_norm(norm_type, c, clamp_bound=clamp_bound,
+                                deep_clamp_bound=deep_clamp_bound)
         self.conv1 = nn.Conv2d(c, dw, 1)
         self.conv2 = nn.Conv2d(dw, dw, 3, padding=1, groups=dw)
         self.sg = SimpleGate()
@@ -56,7 +58,8 @@ class NAFBlock(nn.Module):
         )
         self.conv3 = nn.Conv2d(dw // 2, c, 1)
 
-        self.norm2 = build_norm(norm_type, c, clamp_bound=clamp_bound)
+        self.norm2 = build_norm(norm_type, c, clamp_bound=clamp_bound,
+                                deep_clamp_bound=deep_clamp_bound)
         ffn = c * ffn_expand
         self.conv4 = nn.Conv2d(c, ffn, 1)
         self.conv5 = nn.Conv2d(ffn // 2, c, 1)
@@ -106,7 +109,9 @@ class NAFNet(nn.Module):
                  dec_blk_nums: list[int] | None = None, *, use_gate: bool = False,
                  gate_reduction: int = 4, norm_type: str = "layernorm2d",
                  full_res_norm_type: str | None = None,
-                 clamp_bound: float | None = None) -> None:
+                 clamp_bound: float | None = None,
+                 enc_clamp_stages: list[int] | None = None,
+                 deep_clamp_bound: float | None = None) -> None:
         super().__init__()
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
         dec_blk_nums = dec_blk_nums or [2, 2, 2, 2]
@@ -116,12 +121,29 @@ class NAFNet(nn.Module):
         self.norm_type = norm_type
         self.full_res_norm_type = full_res_norm_type
         self.clamp_bound = clamp_bound
+        self.enc_clamp_stages = tuple(enc_clamp_stages or ())
+        self.deep_clamp_bound = deep_clamp_bound
+        for s in self.enc_clamp_stages:
+            if not 0 <= s < len(enc_blk_nums):
+                raise ValueError(
+                    f"enc_clamp_stages {list(self.enc_clamp_stages)} names stage "
+                    f"{s}, but there are only {len(enc_blk_nums)} encoder stages")
+            if s == 0 and full_res_norm_type is not None:
+                raise ValueError(
+                    "encoder stage 0 already uses full_res_norm_type "
+                    f"({full_res_norm_type!r}); clamping it there too would "
+                    "silently discard that override")
 
         def stage_norm(stage_idx: int, n_stages: int, *, decoder: bool) -> str:
             """Norm for a stage; level 0 is full resolution at both ends."""
             level = (n_stages - 1 - stage_idx) if decoder else stage_idx
             if level == 0 and full_res_norm_type is not None:
                 return full_res_norm_type
+            # Deep-stage clamp insurance (F10): applies to encoder stages only.
+            # The decoder's exposure is dec3, which full_res_norm_type already
+            # covers with affine_clamp.
+            if not decoder and level in self.enc_clamp_stages:
+                return "layernorm2d_clamp"
             return norm_type
 
         self.intro = nn.Conv2d(img_channels, width, 3, padding=1)
@@ -138,13 +160,15 @@ class NAFNet(nn.Module):
         for i, n in enumerate(enc_blk_nums):
             nt = stage_norm(i, n_stages, decoder=False)
             self.encoders.append(nn.Sequential(
-                *[NAFBlock(chan, norm_type=nt, clamp_bound=clamp_bound)
+                *[NAFBlock(chan, norm_type=nt, clamp_bound=clamp_bound,
+                           deep_clamp_bound=deep_clamp_bound)
                   for _ in range(n)]))
             self.downs.append(nn.Conv2d(chan, 2 * chan, 2, stride=2))
             chan *= 2
 
         self.middle_blks = nn.Sequential(
-            *[NAFBlock(chan, norm_type=norm_type, clamp_bound=clamp_bound)
+            *[NAFBlock(chan, norm_type=norm_type, clamp_bound=clamp_bound,
+                       deep_clamp_bound=deep_clamp_bound)
               for _ in range(middle_blk_num)])
 
         for i, n in enumerate(dec_blk_nums):
@@ -155,7 +179,8 @@ class NAFNet(nn.Module):
             ))
             chan //= 2
             self.decoders.append(nn.Sequential(
-                *[NAFBlock(chan, norm_type=nt, clamp_bound=clamp_bound)
+                *[NAFBlock(chan, norm_type=nt, clamp_bound=clamp_bound,
+                           deep_clamp_bound=deep_clamp_bound)
                   for _ in range(n)]))
 
         self.padder_size = 2 ** len(enc_blk_nums)
@@ -211,4 +236,6 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
         gate_reduction=gate_cfg.get("reduction", 4),
         norm_type=norm_type or cfg.get("norm_type", "layernorm2d"),
         full_res_norm_type=cfg.get("full_res_norm_type"),
+        enc_clamp_stages=cfg.get("enc_clamp_stages"),
+        deep_clamp_bound=cfg.get("deep_clamp_bound"),
     )

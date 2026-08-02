@@ -243,8 +243,14 @@ def main() -> None:
                 "data.mixed_task is true but data.tasks is missing or empty. "
                 "List the task roots explicitly (relative to data_root); there "
                 "is no default -- see findings F11.")
+        # Continuous noise sampling is the F10 fix and applies only to the
+        # multi-task path — B0-denoise's discrete {15,25,50} stays exactly as
+        # trained so the two remain comparable on the protocol's own sigmas.
+        sigma_range = cfg["data"].get("sigma_range")
         loader = build_multitask_loader(
-            {t: data_root / rel for t, rel in tasks.items()}, **common)
+            {t: data_root / rel for t, rel in tasks.items()},
+            sigma_range=tuple(sigma_range) if sigma_range else None,
+            clean_prob=cfg["data"].get("clean_prob", 0.0), **common)
     else:
         loader = build_train_loader([data_root / "Train" / "Denoise"], **common)
 

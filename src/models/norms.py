@@ -24,7 +24,14 @@ from torch import nn
 
 #: Every supported ``norm_type``. Unknown values raise (rule 9).
 NORM_TYPES = ("layernorm2d", "layernorm2d_rsqrt", "affine", "affine_clamp",
-              "identity", "batchnorm")
+              "layernorm2d_clamp", "identity", "batchnorm")
+
+#: Magnitude bound for :class:`LayerNorm2dClamp` on the deep encoder stages.
+#: From measurement: during the F9 divergence — the single worst activation
+#: event on record, where `dec3` reached max|a| 5.6e6 — `enc3` reached only 7.59.
+#: A bound of 32 is >4x that and cannot engage in any state resembling one
+#: observed so far, which is the point: it is insurance, not an operator.
+DEEP_CLAMP_BOUND = 32.0
 
 #: Default magnitude bound for :class:`AffineClampNorm2d` (variant N-F-clamp).
 #: Chosen from measurement, not taste: at the B0 divergence the exploding stage
@@ -185,6 +192,40 @@ class AffineClampNorm2d(nn.Module):
         return torch.clamp(x, -self.bound, self.bound)
 
 
+class LayerNorm2dClamp(LayerNorm2d):
+    """LayerNorm2d followed by a hard magnitude bound. Deep-stage insurance.
+
+    **Read the caveat before adopting this.** LayerNorm already bounds its own
+    output structurally — it renormalises to unit variance per pixel, so the
+    output magnitude is governed by the learned ``weight``/``bias`` rather than
+    by the input. That is precisely why `dec3`, which under N-F has *no*
+    normalisation, reached max|a| 5.6e6 during the F9 divergence while `enc3`,
+    which has LayerNorm, reached 7.59 on the very same sample. A clamp here
+    therefore guards a failure mode that has never been observed at this depth.
+
+    It ships anyway, for the F9 reason: a clamp bounds unconditionally, and
+    distribution coverage does not. `enc3` is the stage where a low-noise input
+    is amplified across 8 blocks at 128 channels (finding F10), and the cost of
+    being wrong about "LayerNorm makes this impossible" is another multi-day run.
+
+    **Latency consequence.** This changes the exported graph, so every INT8
+    number measured on the locked M arm — 2.885 ms and everything derived from
+    it — describes a model WITHOUT this clamp. `Clip` is a first-class quantized
+    op on Hexagon and usually fuses into its predecessor, so the expected cost is
+    near zero, but that is a claim to MEASURE on AI Hub before it is quoted.
+    """
+
+    def __init__(self, channels: int, eps: float = 1e-6,
+                 bound: float | None = None) -> None:
+        super().__init__(channels, eps)
+        # Read at CONSTRUCTION time, not as a default argument -- see
+        # AffineClampNorm2d for the bug that convention prevents.
+        self.bound = DEEP_CLAMP_BOUND if bound is None else bound
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.clamp(super().forward(x), -self.bound, self.bound)
+
+
 class IdentityNorm2d(nn.Module):
     """N-C: no normalisation at all. Zero ops.
 
@@ -200,7 +241,8 @@ class IdentityNorm2d(nn.Module):
 
 
 def build_norm(norm_type: str, channels: int, eps: float = 1e-6,
-               clamp_bound: float | None = None) -> nn.Module:
+               clamp_bound: float | None = None,
+               deep_clamp_bound: float | None = None) -> nn.Module:
     """Construct a normalisation module by name.
 
     Args:
@@ -209,6 +251,8 @@ def build_norm(norm_type: str, channels: int, eps: float = 1e-6,
         eps: numerical epsilon (ignored by variants without statistics).
         clamp_bound: magnitude bound for ``affine_clamp``; ``None`` uses
             :data:`AFFINE_CLAMP_BOUND`. Ignored by other variants.
+        deep_clamp_bound: magnitude bound for ``layernorm2d_clamp``; ``None``
+            uses :data:`DEEP_CLAMP_BOUND`. Ignored by other variants.
 
     Raises:
         ValueError: on an unknown ``norm_type`` — never silently defaults.
@@ -221,6 +265,13 @@ def build_norm(norm_type: str, channels: int, eps: float = 1e-6,
         return AffineNorm2d(channels)
     if norm_type == "affine_clamp":
         return AffineClampNorm2d(channels, bound=clamp_bound)
+    if norm_type == "layernorm2d_clamp":
+        # NOTE: deliberately NOT sharing `clamp_bound` with affine_clamp. The two
+        # bound different quantities -- an unnormalised affine output at full
+        # resolution versus a renormalised deep-stage output -- and were chosen
+        # from separate measurements. One key for both would silently retune one
+        # of them whenever the other was changed.
+        return LayerNorm2dClamp(channels, eps, bound=deep_clamp_bound)
     if norm_type == "identity":
         return IdentityNorm2d(channels)
     if norm_type == "batchnorm":

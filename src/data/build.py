@@ -200,7 +200,8 @@ class MultiTaskTrainDataset(Dataset):
     """
 
     def __init__(self, sources: dict[str, str | Path], *,
-                 sigmas=(15, 25, 50), patch_size: int = 256,
+                 sigmas=(15, 25, 50), sigma_range: tuple[float, float] | None = None,
+                 clean_prob: float = 0.0, patch_size: int = 256,
                  base_seed: int = 0, cache_images: bool = True,
                  length: int | None = None,
                  cache_budget_gb: float = 0.75) -> None:
@@ -208,10 +209,36 @@ class MultiTaskTrainDataset(Dataset):
             sources: task name -> root. ``denoise`` points at a directory of
                 clean images; ``derain``/``dehaze`` point at a directory holding
                 ``input/`` and ``target/``.
+            sigmas: discrete noise levels, cycled so each is equally
+                represented. Used only when ``sigma_range`` is ``None``.
+            sigma_range: ``(lo, hi)`` for CONTINUOUS noise sampling, which is the
+                F10 fix — training on {15, 25, 50} alone left the model with no
+                coverage below 15, and it degraded a nearly-clean input to
+                125/255 mean absolute error. Overrides ``sigmas`` entirely.
+            clean_prob: probability of drawing exactly sigma = 0. Uniform
+                sampling gives the clean case measure zero, and sigma = 0 is the
+                worst case F10 actually exhibited, so it gets explicit mass.
+                Requires ``sigma_range``; meaningless with discrete cycling.
             length: total samples per epoch across all tasks. Defaults to the
                 natural denoise stream length times the number of tasks, so
                 adding a task widens the epoch rather than starving denoise.
         """
+        if sigma_range is not None:
+            lo, hi = (float(v) for v in sigma_range)
+            if lo < 0 or hi <= lo:
+                raise ValueError(
+                    f"sigma_range must be (lo, hi) with 0 <= lo < hi, got {sigma_range}")
+            sigma_range = (lo, hi)
+        if not 0.0 <= clean_prob < 1.0:
+            raise ValueError(f"clean_prob must be in [0, 1), got {clean_prob}")
+        if clean_prob > 0 and sigma_range is None:
+            raise ValueError(
+                "clean_prob requires sigma_range: with discrete `sigmas` the "
+                "noise level is cycled deterministically and there is no draw "
+                "for a clean sample to displace.")
+        self.sigma_range = sigma_range
+        self.clean_prob = clean_prob
+
         if not sources:
             raise ValueError("sources is empty; pass at least one task")
         unknown = set(sources) - set(TASK_IDS)
@@ -277,6 +304,19 @@ class MultiTaskTrainDataset(Dataset):
         load = lambda: load_rgb_uint8(path, base=1)
         return load() if self._lru is None else self._lru.get(key, load)
 
+    def _sigma_for(self, local: int, rng: np.random.Generator) -> float:
+        """Noise level for one denoise sample.
+
+        Discrete mode cycles on the LOCAL index so each sigma is equally
+        represented regardless of task count, and draws nothing from ``rng`` —
+        which keeps this path byte-identical to the pre-F10 behaviour.
+        """
+        if self.sigma_range is None:
+            return float(self.sigmas[local % len(self.sigmas)])
+        if self.clean_prob and rng.random() < self.clean_prob:
+            return 0.0                          # exact identity task, not "low"
+        return float(rng.uniform(*self.sigma_range))
+
     def __getitem__(self, idx: int):
         task = self.task_of(idx)
         local = idx % self.stream_length
@@ -302,9 +342,7 @@ class MultiTaskTrainDataset(Dataset):
                                            patch_size=self.patch_size, rng=rng)
 
         if task == "denoise":
-            # Cycle sigma on the LOCAL index so each sigma is equally
-            # represented within the denoise stream regardless of task count.
-            sigma = float(self.sigmas[local % len(self.sigmas)])
+            sigma = self._sigma_for(local, rng)
             noise_state = np.random.RandomState(
                 int(rng.integers(0, 2 ** 31 - 1)))  # noqa: NPY002 - legacy stream
             degraded = add_gaussian_noise(clean, sigma, rng=noise_state)
@@ -339,7 +377,9 @@ def build_train_loader(roots: list[str | Path], *, batch_size: int = 32,
 
 def build_multitask_loader(sources: dict[str, str | Path], *,
                            batch_size: int = 16, patch_size: int = 256,
-                           sigmas=(15, 25, 50), num_workers: int = 8,
+                           sigmas=(15, 25, 50),
+                           sigma_range: tuple[float, float] | None = None,
+                           clean_prob: float = 0.0, num_workers: int = 8,
                            seed: int = 0, length: int | None = None,
                            cache_budget_gb: float = 0.75
                            ) -> torch.utils.data.DataLoader:
@@ -352,7 +392,9 @@ def build_multitask_loader(sources: dict[str, str | Path], *,
     ``cache_budget_gb`` is PER WORKER — total resident cache is roughly
     ``num_workers * cache_budget_gb``. Size it against real RAM, not the dataset.
     """
-    dataset = MultiTaskTrainDataset(sources, sigmas=sigmas, patch_size=patch_size,
+    dataset = MultiTaskTrainDataset(sources, sigmas=sigmas,
+                                    sigma_range=sigma_range,
+                                    clean_prob=clean_prob, patch_size=patch_size,
                                     base_seed=seed, length=length,
                                     cache_budget_gb=cache_budget_gb)
     # The trainer consumes MICRO-batches, so the batch budget is derived from
