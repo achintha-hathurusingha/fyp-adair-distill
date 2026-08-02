@@ -1,0 +1,84 @@
+# B0-v2 — the ALL-IN-ONE baseline. This is the one the protocol asks for.
+#
+# SCOPE. Three degradations in one model, per AirNet/PromptIR/AdaIR: denoising
+# at sigma in {15,25,50}, deraining (Rain100L), dehazing (RESIDE-OTS). Every
+# batch holds an equal share of all three (src/data/sampler.py). Contrast with
+# b0_baseline.yaml — B0-denoise — which trains on denoise alone and is retained
+# as a single-task control, not as this baseline (findings F11).
+#
+# No teacher involvement of any kind. Reconstruction loss on ground truth only.
+# If this file ever grows a distillation term, it stops being a baseline.
+#
+# Architecture is the same locked M arm as B0-denoise, unchanged, so the two are
+# directly comparable and every INT8 latency measured so far still applies:
+#   norm    N-F  — LayerNorm2d deeper, affine_clamp at full resolution (F9)
+#   M arm   w16_sidd, 7.37M params, 4.13 GMACs, 2.885 ms INT8 on S24
+#
+# STATUS: NOT LAUNCHED. Blocked on the RESIDE-OTS download (~4.6 GB; see
+# scripts/reside_manifest.py) and on B5 validation of the loader on
+# denoise+derain. Launch is staged — seed 0 alone, watched through an early
+# checkpoint, seeds 1/2 only after it clears.
+
+experiment: b0v2_multitask
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp   # F9: plain affine here killed B0
+  clamp_bound: 8.0                   # active from iteration 0, not retrofitted
+
+data:
+  patch_size: 128
+  batch_size: 16          # MICRO-batch, effective 32 via accum_steps (F8).
+                          # 16 = 3 tasks x 5 + 1 rotating extra; see sampler.py
+                          # for how the leftover slot is shared out fairly.
+  sigmas: [15, 25, 50]
+
+  mixed_task: true        # LOAD-BEARING since F11 — selects the balanced loader
+  # Task roots, relative to data_root. Mandatory when mixed_task is true; there
+  # is no default, because defaulting to denoise is precisely how B0-denoise
+  # came to be mislabelled. Denoise points at a directory of clean images;
+  # derain/dehaze at a directory holding input/ and target/.
+  tasks:
+    denoise: Train/Denoise    # 5,144 images (BSD400 + WED)
+    derain:  Train/Derain     # 200 pairs (Rain100L), repeats to fill its share
+    dehaze:  Train/Dehaze     # RESIDE-OTS synthetic — NOT YET DOWNLOADED
+
+  num_workers: 6
+  # PER WORKER decoded-image cache; resident total is num_workers x this.
+  # Unchanged from B0-denoise, but note the mix now includes RESIDE-OTS JPEGs,
+  # which decode larger than BSD400 — watch RSS on the first staged run.
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0          # as retried on B0-denoise after the F9 divergence
+
+schedule:
+  name: cosine
+  total_iters: 300000
+  warmup_iters: 5000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true               # bfloat16
+  val_every: 5000
+  ckpt_every: 5000
+  seeds: [0, 1, 2]
+
+loss:
+  name: charbonnier       # reconstruction ONLY — Phase 01 admits nothing else
+  eps: 1.0e-3
+
+eval:
+  harness: src/eval/evaluate.py
+  test_sets: [bsd68]

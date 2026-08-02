@@ -384,7 +384,11 @@ class Trainer:
         self.optimizer.zero_grad(set_to_none=True)
 
         while it < self.total_iters:
-            for degraded, clean, _sigma in self.loader:
+            # Third element is per-sample provenance -- a sigma from the
+            # denoise loader, a {"task", "sigma"} dict from the multi-task one.
+            # The loss uses neither; it is carried for diagnostics and for the
+            # batch-composition assertions that F11 would have been caught by.
+            for degraded, clean, _provenance in self.loader:
                 if it >= self.total_iters:
                     break
                 lr = self._lr_at(it)

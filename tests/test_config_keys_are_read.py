@@ -30,6 +30,7 @@ TRAINING_CONFIGS = [
     "configs/train/b0_baseline.yaml",
     "configs/train/b0_qa_control.yaml",
     "configs/train/b0_fixc.yaml",
+    "configs/train/b0v2_multitask.yaml",
 ]
 
 #: Source consuming those configs. A key must appear in at least one of these.
@@ -59,9 +60,11 @@ DOCUMENTED_NON_CODE_KEYS = {
 #: Keys KNOWN to be dead, with the finding that records it. Present so the test
 #: passes today while making the debt explicit and greppable. Removing a key
 #: from this set must make the test fail until the key is genuinely wired up.
-KNOWN_DEAD = {
-    "mixed_task": "F11 -- never implemented; the multi-task loader is B0-v2 work",
-}
+#:
+#: EMPTY, and it should stay that way. `mixed_task` was the only entry; it was
+#: removed when `build_multitask_loader` landed and the tripwire below fired
+#: exactly as intended.
+KNOWN_DEAD: dict[str, str] = {}
 
 
 def _flatten(node, out: set[str]) -> set[str]:
@@ -104,20 +107,20 @@ def test_no_dead_config_keys(cfg_path: str) -> None:
         "This is how B0 trained on denoise only for a full run (F11).")
 
 
-def test_mixed_task_is_still_dead_and_declared() -> None:
-    """`mixed_task` must stay declared dead until it is genuinely implemented.
+def test_mixed_task_actually_selects_the_loader() -> None:
+    """`mixed_task` must decide which loader is built, not merely be mentioned.
 
-    When the multi-task loader lands, delete it from KNOWN_DEAD. If the wiring
-    is incomplete, `test_no_dead_config_keys` will then fail -- which is the
-    point: the debt cannot be quietly discharged.
+    The weaker check -- that the string appears in the source -- would pass on a
+    comment, and a comment is what F11 was. This asserts the branch exists and
+    that the true case reaches the multi-task loader.
     """
-    src = _consumer_source()
-    referenced = re.search(r"""["']mixed_task["']""", src) is not None
-    if referenced:
-        pytest.fail(
-            "mixed_task is now referenced in code -- remove it from KNOWN_DEAD "
-            "so the dead-key check covers it properly.")
-    assert "mixed_task" in KNOWN_DEAD
+    src = (REPO_ROOT / "src/train/train.py").read_text(encoding="utf-8")
+    branch = re.search(r"if cfg\[.data.\]\[.mixed_task.\]:(.*?)\n    else:",
+                       src, re.S)
+    assert branch, "mixed_task no longer selects a loader in train.py"
+    assert "build_multitask_loader" in branch.group(1), (
+        "the mixed_task=true branch does not build the multi-task loader")
+    assert "mixed_task" not in KNOWN_DEAD, "the key is wired up; stop excusing it"
 
 
 def test_known_dead_entries_carry_a_reason() -> None:

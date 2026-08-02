@@ -15,7 +15,7 @@ from pathlib import Path
 
 import torch
 
-from src.data.build import build_train_loader
+from src.data.build import build_multitask_loader, build_train_loader
 from src.models.nafnet import NAFNet
 from src.train.trainer import Trainer
 from src.utils.config import REPO_ROOT, load_paths, load_yaml
@@ -225,14 +225,28 @@ def main() -> None:
     # The loader is consumed one MICRO-batch at a time, and an optimizer step
     # eats `accum` of them, so the sample budget scales with both.
     length = cfg["schedule"]["total_iters"] * accum * micro_bs
-    loader = build_train_loader(
-        [data_root / "Train" / "Denoise"],
-        batch_size=micro_bs, patch_size=cfg["data"]["patch_size"],
-        sigmas=tuple(cfg["data"]["sigmas"]),
-        num_workers=(args.num_workers if args.num_workers is not None
-                     else cfg["data"]["num_workers"]),
-        seed=args.seed, length=length,
-        cache_budget_gb=cfg["data"]["cache_budget_gb"])
+    workers = (args.num_workers if args.num_workers is not None
+               else cfg["data"]["num_workers"])
+    common = dict(batch_size=micro_bs, patch_size=cfg["data"]["patch_size"],
+                  sigmas=tuple(cfg["data"]["sigmas"]), num_workers=workers,
+                  seed=args.seed, length=length,
+                  cache_budget_gb=cfg["data"]["cache_budget_gb"])
+
+    # `mixed_task` decides the training SCOPE, and until F11 no code read it:
+    # the loader was hardcoded to denoise while the key sat in the config saying
+    # otherwise. It is now load-bearing, and `tasks` is mandatory when it is on —
+    # falling back to denoise is exactly the failure that produced B0-denoise.
+    if cfg["data"]["mixed_task"]:
+        tasks = cfg["data"].get("tasks")
+        if not tasks:
+            raise ValueError(
+                "data.mixed_task is true but data.tasks is missing or empty. "
+                "List the task roots explicitly (relative to data_root); there "
+                "is no default -- see findings F11.")
+        loader = build_multitask_loader(
+            {t: data_root / rel for t, rel in tasks.items()}, **common)
+    else:
+        loader = build_train_loader([data_root / "Train" / "Denoise"], **common)
 
     model = build_model(cfg)
     trainer = Trainer(model, loader, cfg, run_dir, device=args.device,

@@ -50,7 +50,10 @@ data:
   batch_size: 16          # MICRO-batch. w16_sidd peaks at 2.11 GB; 32 OOMs on 6 GB.
                           # Effective batch is 32 via accum_steps below (F8).
   sigmas: [15, 25, 50]
-  mixed_task: true        # balance degradation types WITHIN each batch
+  # Corrected with F11: this run was denoise-only, like every run before
+  # B0-v2. The key now selects the loader, so `true` here would be a claim
+  # about a run that never happened.
+  mixed_task: false       # denoise only
   num_workers: 6
   # PER WORKER decoded-image cache. Workers are persistent and each holds its
   # own copy, so the resident total is num_workers x this. Unbounded, it

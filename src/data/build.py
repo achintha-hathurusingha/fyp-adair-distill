@@ -31,6 +31,7 @@ from torch.utils.data import Dataset
 
 from src.data.datasets import load_rgb_uint8, resolve_pair_target, to_tensor
 from src.data.degradations import add_gaussian_noise
+from src.data.sampler import BalancedTaskBatchSampler
 from src.data.transforms import paired_transform
 
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp")
@@ -331,6 +332,37 @@ def build_train_loader(roots: list[str | Path], *, batch_size: int = 32,
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=True,
         num_workers=num_workers, pin_memory=True, drop_last=True,
+        persistent_workers=num_workers > 0,
+        prefetch_factor=4 if num_workers > 0 else None,
+    )
+
+
+def build_multitask_loader(sources: dict[str, str | Path], *,
+                           batch_size: int = 16, patch_size: int = 256,
+                           sigmas=(15, 25, 50), num_workers: int = 8,
+                           seed: int = 0, length: int | None = None,
+                           cache_budget_gb: float = 0.75
+                           ) -> torch.utils.data.DataLoader:
+    """Build the 3-degradation training loader with per-batch task balancing.
+
+    Uses ``batch_sampler``, so ``batch_size``/``shuffle``/``drop_last`` are the
+    sampler's job — passing them to the DataLoader as well is an error PyTorch
+    raises rather than silently resolving.
+
+    ``cache_budget_gb`` is PER WORKER — total resident cache is roughly
+    ``num_workers * cache_budget_gb``. Size it against real RAM, not the dataset.
+    """
+    dataset = MultiTaskTrainDataset(sources, sigmas=sigmas, patch_size=patch_size,
+                                    base_seed=seed, length=length,
+                                    cache_budget_gb=cache_budget_gb)
+    # The trainer consumes MICRO-batches, so the batch budget is derived from
+    # the sample budget the caller already sized against total_iters * accum.
+    num_batches = max(1, len(dataset) // batch_size)
+    sampler = BalancedTaskBatchSampler(dataset.task_ranges(), batch_size,
+                                       num_batches=num_batches, base_seed=seed)
+    return torch.utils.data.DataLoader(
+        dataset, batch_sampler=sampler,
+        num_workers=num_workers, pin_memory=True,
         persistent_workers=num_workers > 0,
         prefetch_factor=4 if num_workers > 0 else None,
     )

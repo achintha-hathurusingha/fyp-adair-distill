@@ -8,12 +8,14 @@ index.
 """
 from __future__ import annotations
 
+import collections
+
 import numpy as np
 import pytest
 import torch
 from PIL import Image
 
-from src.data.build import TASK_IDS, MultiTaskTrainDataset
+from src.data.build import TASK_IDS, MultiTaskTrainDataset, build_multitask_loader
 
 PATCH = 32
 
@@ -259,3 +261,48 @@ def test_caching_off_returns_the_same_samples(roots) -> None:
     cached, uncached = _ds(roots), _ds(roots, cache_images=False)
     for idx in (0, 31, 62):
         assert torch.equal(cached[idx][0], uncached[idx][0])
+
+
+# ------------------------------------------------- end to end through a loader
+
+
+def _loader(roots, **kw):
+    kw.setdefault("length", 90)
+    kw.setdefault("num_workers", 0)
+    return build_multitask_loader(roots, batch_size=6, patch_size=PATCH,
+                                  cache_budget_gb=0.01, **kw)
+
+
+def test_loader_delivers_balanced_batches(roots) -> None:
+    """The end-to-end claim: what reaches the trainer really is all-in-one."""
+    seen = 0
+    for _degraded, _clean, meta in _loader(roots):
+        counts = collections.Counter(int(t) for t in meta["task"])
+        assert counts == {TASK_IDS["denoise"]: 2, TASK_IDS["derain"]: 2,
+                          TASK_IDS["dehaze"]: 2}, counts
+        seen += 1
+    assert seen == 15, f"expected 90 // 6 = 15 batches, got {seen}"
+
+
+def test_loader_batches_are_worker_count_independent(roots) -> None:
+    """Two workers must produce byte-identical batches to zero workers.
+
+    Proven earlier for the denoise loader by scripts/determinism_check.py; it
+    holds here because every sample is a function of (base_seed, index) alone,
+    with no generator state shared between workers.
+    """
+    single = [(d, c, meta["task"]) for d, c, meta in _loader(roots, num_workers=0)]
+    multi = [(d, c, meta["task"]) for d, c, meta in _loader(roots, num_workers=2)]
+    assert len(single) == len(multi)
+    for i, ((d0, c0, t0), (d1, c1, t1)) in enumerate(zip(single, multi)):
+        assert torch.equal(t0, t1), f"batch {i}: task composition differs"
+        assert torch.equal(d0, d1), f"batch {i}: inputs differ"
+        assert torch.equal(c0, c1), f"batch {i}: targets differ"
+
+
+def test_loader_carries_sigma_alongside_the_task(roots) -> None:
+    _d, _c, meta = next(iter(_loader(roots)))
+    sigmas = meta["sigma"][meta["task"] == TASK_IDS["denoise"]]
+    assert set(float(s) for s in sigmas) <= {15.0, 25.0, 50.0}
+    others = meta["sigma"][meta["task"] != TASK_IDS["denoise"]]
+    assert all(float(s) == -1.0 for s in others)
