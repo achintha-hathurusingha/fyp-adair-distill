@@ -58,6 +58,38 @@ def to_tensor(img_uint8: np.ndarray) -> torch.Tensor:
         np.ascontiguousarray(img_uint8.transpose(2, 0, 1))).float() / 255.0
 
 
+def resolve_pair_target(degraded: Path, target_dir: Path, task: str) -> Path:
+    """Find the ground truth for one degraded image, the way AdaIR does.
+
+    Identical basename for deraining; ``name.split('_')[0] + '.png'`` for
+    dehazing, where several hazy variants share one clear source
+    (``dataset_utils.py:325-338``).
+
+    Module-level rather than a method because the training and evaluation
+    datasets must pair files identically — two copies of this rule would let
+    training and test silently disagree about what the target of an image is.
+
+    Raises:
+        FileNotFoundError: if no target resolves. Callers resolve every pair up
+            front so a broken dataset fails before the run starts, not hours in.
+    """
+    if task == "dehaze":
+        candidate = target_dir / f"{degraded.stem.split('_')[0]}.png"
+    elif task == "derain":
+        candidate = target_dir / degraded.name
+    else:
+        raise ValueError(f"task must be 'derain' or 'dehaze', got {task!r}")
+    if candidate.exists():
+        return candidate
+    for suffix in _IMAGE_SUFFIXES:                # fall back across suffixes
+        alt = candidate.with_suffix(suffix)
+        if alt.exists():
+            return alt
+    raise FileNotFoundError(
+        f"no ground truth for {degraded.name} (looked for {candidate.name} "
+        f"in {target_dir})")
+
+
 class DenoiseTestDataset:
     """BSD68 with synthesised Gaussian noise at a fixed sigma.
 
@@ -115,19 +147,7 @@ class PairedTestDataset:
         self.pairs = [(p, self._target_for(p)) for p in self.inputs]
 
     def _target_for(self, degraded: Path) -> Path:
-        if self.task == "dehaze":
-            candidate = self.target_dir / f"{degraded.stem.split('_')[0]}.png"
-        else:
-            candidate = self.target_dir / degraded.name
-        if not candidate.exists():
-            # Fall back across suffixes before giving up.
-            for suffix in _IMAGE_SUFFIXES:
-                alt = candidate.with_suffix(suffix)
-                if alt.exists():
-                    return alt
-            raise FileNotFoundError(
-                f"no ground truth for {degraded.name} (looked for {candidate.name})")
-        return candidate
+        return resolve_pair_target(degraded, self.target_dir, self.task)
 
     def __len__(self) -> int:
         return len(self.pairs)
