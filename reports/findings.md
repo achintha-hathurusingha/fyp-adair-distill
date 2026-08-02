@@ -924,6 +924,79 @@ writing the sentence that interprets it.
 
 ---
 
+## F11. B0 trained on denoise only — a scope regression that survived a config-authority fix
+
+**The baseline every distillation delta was to be measured against trains on one
+degradation, not three.** The project protocol is AirNet/PromptIR
+3-degradation — denoise (sigma 15/25/50), derain, dehaze. B0 trains on denoise.
+
+### Verified three ways, not inferred
+
+1. **One loader construction exists in the repo, and it is hardcoded.**
+   `src/train/train.py:228` passes `[data_root / "Train" / "Denoise"]` as a
+   literal. `grep -rn "build_train_loader("` returns exactly three hits: the
+   definition, this call, and `scripts/determinism_check.py`. There is no second
+   code path, and the demo export used this same function.
+2. **No multi-task training dataset is wired up.** `src/data/build.py` contains
+   one class, `DenoiseTrainDataset`. `PairedTestDataset` exists in
+   `src/data/datasets.py` for derain/dehaze but is **evaluation-only** — it has
+   `__iter__` and no `__getitem__`, so a shuffling `DataLoader` cannot even index
+   it — and nothing constructs it for training.
+3. **The live runs confirm it.** All three devon seeds run commit `54e37aa`, and
+   devon holds `data/Train/Denoise` 5,144 files, `Derain` **0**, `Dehaze` **0**.
+   Even had the code supported a mix, the data was not there.
+
+### Root cause: an unflagged carryover
+
+`git log -S '"Train" / "Denoise"'` places the hardcoded path in **`4793ae7`,
+"Task 1: trainer, train CLI, mixed-sigma loader"** — the *norm-ablation*
+trainer, where denoise-only was correct and deliberate: Task 1.5b varies
+normalization, so a single task is the right control and it is faster.
+
+B0 then reused that entry point through the `ARMS` table. The narrowing was never
+flagged because nothing ever checked it.
+
+### Why the config-authority fix did not catch this
+
+`mixed_task: true` — with the comment *"balance degradation types WITHIN each
+batch"* — has been in `configs/train/b0_baseline.yaml` since the first scaffold
+commit `e191b47`. `grep -rn "mixed_task" --include="*.py"` returns **zero**
+matches. No code has ever read it.
+
+Commit `82e1ba0` made the YAML authoritative for B0 after the `warmup_iters`
+drift (2000 in code vs 5000 in the reviewed file). That fix verified config
+values **MATCH** between YAML and code. It cannot catch a key the code never
+reads: a dead key matches trivially, because nothing contradicts it.
+
+**This is the same defect class twice.** The fix is not another comparison but an
+inversion — assert every key in the reviewed config is *read* somewhere on the
+path that consumes it, and fail loudly otherwise.
+
+### What the existing B0 numbers do and do not mean
+
+They remain valid for what they measure: a **denoise specialist**. Relabelled
+**B0-denoise** throughout.
+
+- The **+0.23 dB teacher gap** (204 BSD68 evaluations) is denoise specialist vs
+  denoise specialist. It is not a statement about the all-in-one protocol.
+- **F10**, the low-noise collapse, is a property of this specialist. A model
+  trained on one degradation at three fixed sigmas has a far narrower input
+  distribution than one trained across three degradations, so F10 may or may not
+  survive the rebuild — that must be re-tested, not assumed either way.
+- The deployment results — INT8 on a Galaxy S24, 2.881 ms at 256x256, 11.209 ms
+  at 512x512, and F7's teacher-cannot-export result — are unaffected. They are
+  properties of the architecture and the toolchain, not of the training mix.
+
+### Process lesson
+
+**A reviewed config file is not evidence that the code reads it.** `mixed_task:
+true` was read as intent by every human who looked at the file, including me,
+across two separate audits of that same file. The comment beside it described
+behaviour that had never been implemented. Documentation in a config is a claim
+about the code, and claims need tests.
+
+---
+
 ## AI Hub job IDs (verifiable provenance)
 
 Every on-device number in this repository traces to a job below. Job pages are

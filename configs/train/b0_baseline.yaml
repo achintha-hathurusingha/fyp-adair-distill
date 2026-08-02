@@ -1,4 +1,10 @@
-# B0 baseline — the reference every distillation delta is measured against.
+# B0-denoise — a SINGLE-TASK specialist baseline. NOT the all-in-one baseline.
+#
+# SCOPE (findings F11). This trains on DENOISE ONLY, at sigma in {15,25,50}.
+# `src/train/train.py` hardcodes the loader to `Train/Denoise`, so despite the
+# `mixed_task` key below this run has never seen rain or haze. The project
+# protocol is 3-degradation; the all-in-one baseline is B0-v2, still to be built.
+# Numbers from this run describe a denoise specialist and must be labelled so.
 #
 # NAFNet on the LOCKED architecture, trained on ground truth only with a
 # reconstruction loss. **No teacher involvement of any kind.** If this file ever
@@ -33,7 +39,12 @@ data:
   batch_size: 16          # MICRO-batch. w16_sidd peaks at 2.11 GB; 32 OOMs on 6 GB.
                           # Effective batch is 32 via accum_steps below (F8).
   sigmas: [15, 25, 50]
-  mixed_task: true        # balance degradation types WITHIN each batch
+  # DEAD KEY (findings F11). No code has ever read this. It has been in the file
+  # since the first scaffold commit and was read as intent by every human who
+  # looked at it, across two audits, while `grep -rn mixed_task --include=*.py`
+  # returned nothing. Left in place deliberately until the multi-task loader
+  # lands, guarded by the dead-config-key test so it cannot mislead again.
+  mixed_task: true        # NOT IMPLEMENTED — see F11
   num_workers: 6
   # PER WORKER decoded-image cache. Workers are persistent and each holds its
   # own copy, so the resident total is num_workers x this. Unbounded, it

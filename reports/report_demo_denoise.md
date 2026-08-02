@@ -1,4 +1,4 @@
-# Demo report — denoising, teacher vs edge student, on-device INT8
+# Demo report — B0-denoise vs AdaIR denoise specialist, on-device INT8
 
 **Date:** 2026-08-02
 **Question:** does the compressed student, quantized to INT8 and run on the
@@ -11,13 +11,19 @@ over from a previous run.
 
 ## 1. Scope — read this first
 
-**This demo covers DENOISING ONLY.**
+**This demo covers DENOISING ONLY, and the model is a denoise specialist.**
 
-B0's training loader is built from `Train/Denoise` alone
-(`src/train/train.py:229`) and its dataset class is `DenoiseTrainDataset`. The
-model has never seen rain or haze, so no derain or dehaze numbers appear here.
-Producing them would mean reporting a model's response to degradations it was
-never trained on, which describes nothing.
+The student here is **B0-denoise**. Its training loader is built from
+`Train/Denoise` alone (`src/train/train.py:228`) and its dataset class is
+`DenoiseTrainDataset`. It has never seen rain or haze, so no derain or dehaze
+numbers appear — producing them would mean reporting a model's response to
+degradations it was never trained on, which describes nothing.
+
+**This is a scope regression from the project protocol, not a demo choice.**
+The protocol is 3-degradation (AirNet/PromptIR); B0-denoise trains on one. See
+findings **F11** for the root cause and verification. The all-in-one baseline is
+**B0-v2**, still to be built. Every figure below is a property of a denoise
+specialist and should not be read as a claim about the all-in-one model.
 
 The teacher is therefore the **denoise specialist** `adair-single-denoise.ckpt`,
 not the 3-degradation `adair3d.ckpt`. An earlier version of this comparison used
@@ -31,15 +37,16 @@ its on one. Specialist-vs-specialist is the fair comparison and shows a real gap
 
 | | teacher | student |
 |---|---|---|
-| model | AdaIR (ICLR 2025), denoise specialist | NAFNet `w16_sidd` (B0 baseline) |
+| model | AdaIR (ICLR 2025), denoise specialist | NAFNet `w16_sidd` (**B0-denoise**) |
 | checkpoint | `data/ckpt/adair-single-denoise.ckpt` | B0 seed 0 @ **iteration 200,000** |
 | parameters | **28,784,824** | **7,371,923** |
 | normalization | — | LayerNorm2d + `affine_clamp(8.0)` at full-res (F9) |
 | training | released weights | 200k iters, Charbonnier vs ground truth, **no distillation** |
 | precision measured | FP32 | FP32 **and** INT8 |
 
-**B0 has had no knowledge distillation of any kind.** It is the reference
-baseline every future distillation delta is measured against.
+**B0-denoise has had no knowledge distillation of any kind.** It is a valid
+single-task reference, but it is **not** the baseline Phase 02 deltas will be
+measured against — that will be B0-v2, on the full 3-degradation mix (F11).
 
 ---
 
@@ -205,15 +212,21 @@ INT8 and FP32 are near-indistinguishable at every level despite the measured
 
 1. **12 crops, not a benchmark.** 4 images x 3 sigmas at 256x256. Not comparable
    to published full-image BSD68 numbers, and not intended to be.
-2. **Denoise only.** No derain or dehaze — B0 was not trained on them.
-3. **B0 is not finished.** Seed 0 was at 200,000 of 300,000 when exported, and
+2. **Denoise only, and that is a scope regression (F11)** — not a demo choice.
+   The project protocol is 3-degradation; this model trains on one. The
+   all-in-one baseline B0-v2 does not exist yet.
+3. **B0-denoise collapses on low-noise input (F10).** It destroys any image with
+   sigma below about 9 — mean change 125.4/255 on clean photographs, against
+   AdaIR's 1.88/255. Every number in this report is computed at sigma >= 15,
+   which is exactly where that failure is invisible.
+4. **B0-denoise is not finished.** Seed 0 was at 200,000 of 300,000 when exported, and
    seeds 1 and 2 are still running. Final numbers will move slightly, and
    seed-to-seed variance is not yet known (spread at iteration 5,000 was
    0.05 dB).
-4. **The 0.393 dB INT8 cost exceeds the +-0.10 dB threshold** used for
+5. **The 0.393 dB INT8 cost exceeds the +-0.10 dB threshold** used for
    architecture decisions elsewhere in this project. It is within normal
    post-training-quantization range and the model plainly still works, but it
    should not be described as quality-neutral.
-5. **FP32 timings are RTX 3050 laptop numbers**, taken with the GPU otherwise
+6. **FP32 timings are RTX 3050 laptop numbers**, taken with the GPU otherwise
    idle. They compare the two models fairly against each other but are not
    deployment figures — the S24 INT8 number is.
