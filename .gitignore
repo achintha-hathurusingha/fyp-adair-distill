@@ -47,3 +47,4 @@ dist/
 
 # RESIDE manifests (regenerable via scripts/reside_manifest.py plan)
 /reports/reside_required_*.txt
+/runs/demo_nb/nb_figs/
