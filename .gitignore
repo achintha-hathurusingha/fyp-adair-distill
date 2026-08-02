@@ -44,3 +44,6 @@ dist/
 /runs/int8_demo/*.npy
 /runs/int8_demo/*.onnx
 /runs/demo_nb/*.onnx
+
+# RESIDE manifests (regenerable via scripts/reside_manifest.py plan)
+/reports/reside_required_*.txt
