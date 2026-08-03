@@ -76,11 +76,19 @@ data:
   # Task roots, relative to data_root. Mandatory when mixed_task is true; there
   # is no default, because defaulting to denoise is precisely how B0-denoise
   # came to be mislabelled. Denoise points at a directory of clean images;
-  # derain/dehaze at a directory holding input/ and target/.
+  # derain/dehaze either at a directory holding input/ and target/, or at an
+  # explicit input/target pair for a dataset published in another layout.
   tasks:
     denoise: Train/Denoise    # 5,144 images (BSD400 + WED)
     derain:  Train/Derain     # 200 pairs (Rain100L), repeats to fill its share
-    dehaze:  Train/Dehaze     # RESIDE-OTS synthetic — NOT YET DOWNLOADED
+    # RESIDE-OTS ships synthetic/part1..4 beside clear/ and has no input/ dir.
+    # Named outright rather than reshaping 72,135 files to fit a convention —
+    # the layout below is the one hazy_outside.txt refers to, so our copy stays
+    # checkable against the vendored list. VERIFIED 2026-08-03: 72,135 hazy,
+    # 2,061 clear, 11.17 GB (scripts/reside_manifest.py verify).
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
 
   num_workers: 6
   # PER WORKER decoded-image cache; resident total is num_workers x this.

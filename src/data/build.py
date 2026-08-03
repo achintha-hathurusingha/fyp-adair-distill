@@ -48,6 +48,27 @@ def _list_images(root: Path) -> list[Path]:
                   if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES)
 
 
+def resolve_task_sources(tasks: dict, data_root: Path) -> dict:
+    """Turn config-relative task entries into absolute sources for the dataset.
+
+    A task entry is either a relative path, or a ``{"input": ..., "target": ...}``
+    mapping whose values are each made absolute. Both forms exist because RESIDE
+    OTS ships ``synthetic/part1..4/`` beside ``clear/`` rather than
+    ``input/``/``target/`` — see ``_paired_dirs``.
+
+    Shared by the training entry point and the validation script so the two
+    cannot resolve the same config differently, which is the sort of divergence
+    that let B0-denoise train on a scope its config did not describe (F11).
+    """
+    out: dict = {}
+    for task, spec in tasks.items():
+        if isinstance(spec, dict):
+            out[task] = {k: data_root / v for k, v in spec.items()}
+        else:
+            out[task] = data_root / spec
+    return out
+
+
 def _paired_dirs(task: str, spec) -> tuple[Path, Path]:
     """Resolve a derain/dehaze source to its (degraded, ground-truth) directories.
 

@@ -30,7 +30,8 @@ from pathlib import Path
 import torch
 import yaml
 
-from src.data.build import TASK_IDS, build_multitask_loader
+from src.data.build import (TASK_IDS, build_multitask_loader,
+                            resolve_task_sources)
 from src.utils.config import REPO_ROOT, load_paths
 
 CONFIG = REPO_ROOT / "configs" / "train" / "b0v2_multitask.yaml"
@@ -38,10 +39,12 @@ CONFIG = REPO_ROOT / "configs" / "train" / "b0v2_multitask.yaml"
 
 def _resolve_sources(cfg: dict, data_root: Path) -> tuple[dict[str, Path], list[str]]:
     """Task roots that exist, and the names of those that do not."""
+    resolved = resolve_task_sources(cfg["data"]["tasks"], data_root)
     present, missing = {}, []
-    for task, rel in cfg["data"]["tasks"].items():
-        root = data_root / rel
-        (present.__setitem__(task, root) if root.exists() else missing.append(task))
+    for task, spec in resolved.items():
+        dirs = list(spec.values()) if isinstance(spec, dict) else [spec]
+        (present.__setitem__(task, spec) if all(d.exists() for d in dirs)
+         else missing.append(task))
     return present, missing
 
 

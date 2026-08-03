@@ -15,7 +15,8 @@ from pathlib import Path
 
 import torch
 
-from src.data.build import build_multitask_loader, build_train_loader
+from src.data.build import (build_multitask_loader, build_train_loader,
+                            resolve_task_sources)
 from src.models.nafnet import NAFNet
 from src.train.trainer import Trainer
 from src.utils.config import REPO_ROOT, load_paths, load_yaml
@@ -248,7 +249,7 @@ def main() -> None:
         # trained so the two remain comparable on the protocol's own sigmas.
         sigma_range = cfg["data"].get("sigma_range")
         loader = build_multitask_loader(
-            {t: data_root / rel for t, rel in tasks.items()},
+            resolve_task_sources(tasks, data_root),
             sigma_range=tuple(sigma_range) if sigma_range else None,
             clean_prob=cfg["data"].get("clean_prob", 0.0), **common)
     else:
