@@ -1037,6 +1037,70 @@ about the code, and claims need tests.
 
 ---
 
+## F12. The full-resolution clamp becomes load-bearing over a long run
+
+Recorded **before** B0-v2 launches, because it is the behaviour B0-v2's longer
+and more varied training will either reproduce or change, and a baseline written
+afterwards is a baseline fitted to its result.
+
+All three B0-denoise seeds completed 300k iterations without divergence, without
+a single non-finite skip, and within **0.0079 dB** of each other
+(31.3177 / 31.3211 / 31.3256). The Fix-C clamp at `dec3` did its job. What it
+also did, on every seed, is stop being a rare event.
+
+| seed | premax at 5k | premax final | engage final | premax trend | engage trend |
+|---|---|---|---|---|---|
+| 0 | 1.89 | 9.79 | 0.06% | tau -0.009, p=0.92 | tau 0.568, **p<0.001** |
+| 1 | 1.89 | 23.41 | 2.35% | tau 0.240, **p=0.007** | tau 0.864, **p<0.001** |
+| 2 | 1.70 | 18.03 | 1.67% | tau 0.111, p=0.21 | tau 0.837, **p<0.001** |
+
+Mann-Kendall, the pre-committed test (`scripts/trend_test.py`), 60 intervals per
+seed. **Engagement rate rises significantly on all three seeds.** Magnitude
+rises on one.
+
+The clamp bound is 8.0. Final pre-clamp magnitudes of 18-23 mean the affine
+output routinely sits 2-3x above the bound, and the clamp is shaping roughly 2%
+of activations at `dec3` rather than catching an emergency. That is a different
+object from what the fix was designed as: at 0.06% it is insurance, at 2.35% it
+is an undocumented activation function participating in normal training.
+
+### It did not cost accuracy here, and that is not the same as being harmless
+
+Seed 1 has both the highest engagement (2.35%) and the highest final pre-clamp
+magnitude, and lands mid-pack on PSNR. Across the three seeds engagement spans
+39x while PSNR spans 0.008 dB, so on this task the clamp's activity and the
+model's quality are simply unrelated. The concern is not this run; it is that
+the margin between "insurance" and "activation function" was consumed silently
+over 300k iterations, and B0-v2 trains just as long on a harder mixture.
+
+### A prediction I made and had to withdraw
+
+Mid-run, seeds 1 and 2 both fired the trend test's "genuine intensification"
+reading at 145-150k. I checked seed 0, saw its spikes stop at 185k and its tail
+flatten at 9-11, and concluded the verdict was an artifact of truncation.
+
+That was half wrong. The **spikes** do stop on every seed (last at 185k, 215k,
+145k respectively) and the truncation reasoning was right about magnitude. The
+**engagement rate** does not stop rising, and it reproduces on all three seeds
+over their full length. A single control run was enough to explain one series
+and not the other, and I generalised from it to both.
+
+### Watch, not fix
+
+No change is made on this evidence. The pre-committed reading says not to switch
+fixes on a trend alone, and the alternative -- raising the bound -- trades a
+known contained behaviour for an unmeasured one. What B0-v2 must carry is
+instrumentation: `clamp_engage_rate` and `clamp_max_preclamp` on **both** clamps,
+`dec3` and the new `enc3` insurance, logged from iteration 0. If the multi-task
+mixture pushes `dec3` engagement past roughly 5%, or the `enc3` clamp engages at
+all, that is the point to stop and re-run the AGC diagnostic.
+
+Note the instrumentation is currently a local edit on the training host
+(`TRACK_CLAMP_ENGAGEMENT = True` in `src/models/norms.py`), not a config key.
+It should be one before B0-v2, or the next run silently records nothing.
+
+---
+
 ## AI Hub job IDs (verifiable provenance)
 
 Every on-device number in this repository traces to a job below. Job pages are
