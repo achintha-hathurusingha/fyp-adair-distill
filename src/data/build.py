@@ -48,6 +48,43 @@ def _list_images(root: Path) -> list[Path]:
                   if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES)
 
 
+def _paired_dirs(task: str, spec) -> tuple[Path, Path]:
+    """Resolve a derain/dehaze source to its (degraded, ground-truth) directories.
+
+    Two forms, both explicit — there is no probing of one layout then falling
+    back to another, because a fallback turns a mistyped path into a silently
+    smaller dataset:
+
+    ``Path``
+        The ``input/`` + ``target/`` convention, as ``PairedTestDataset`` uses.
+    ``{"input": ..., "target": ...}``
+        Directories named outright. Needed for the published RESIDE OTS layout,
+        which is ``synthetic/part1..4/`` beside ``clear/`` and has no ``input/``
+        at all. Listing is recursive, so the ``partN`` split survives.
+    """
+    if isinstance(spec, dict):
+        missing = {"input", "target"} - set(spec)
+        if missing:
+            raise ValueError(
+                f"{task} source dict must give 'input' and 'target'; "
+                f"missing {sorted(missing)}")
+        input_dir, target_dir = Path(spec["input"]), Path(spec["target"])
+        for role, d in (("input", input_dir), ("target", target_dir)):
+            if not d.exists():
+                raise FileNotFoundError(f"{task} {role} directory not found: {d}")
+        return input_dir, target_dir
+
+    root = Path(spec)
+    input_dir, target_dir = root / "input", root / "target"
+    for d in (input_dir, target_dir):
+        if not d.exists():
+            raise FileNotFoundError(
+                f"{task} root {root} must contain input/ and target/; missing "
+                f"{d.name}/. If the data uses a different layout, pass "
+                f'{{"input": ..., "target": ...}} instead of a bare path.')
+    return input_dir, target_dir
+
+
 def _pad_to_patch(img: np.ndarray, patch_size: int) -> np.ndarray:
     """Reflect-pad an image up to ``patch_size`` if it is smaller."""
     h, w = img.shape[:2]
@@ -206,9 +243,12 @@ class MultiTaskTrainDataset(Dataset):
                  length: int | None = None,
                  cache_budget_gb: float = 0.75) -> None:
         """Args:
-            sources: task name -> root. ``denoise`` points at a directory of
-                clean images; ``derain``/``dehaze`` point at a directory holding
-                ``input/`` and ``target/``.
+            sources: task name -> source. ``denoise`` points at a directory of
+                clean images. ``derain``/``dehaze`` point either at a directory
+                holding ``input/`` and ``target/``, or at an explicit
+                ``{"input": ..., "target": ...}`` mapping for datasets published
+                in another layout — RESIDE OTS ships ``synthetic/part1..4/``
+                beside ``clear/``. See ``_paired_dirs``.
             sigmas: discrete noise levels, cycled so each is equally
                 represented. Used only when ``sigma_range`` is ``None``.
             sigma_range: ``(lo, hi)`` for CONTINUOUS noise sampling, which is the
@@ -255,18 +295,14 @@ class MultiTaskTrainDataset(Dataset):
         # unpairable image must stop the run now, not eight hours in.
         self.items: dict[str, list] = {}
         for task in self.tasks:
-            root = Path(sources[task])
+            spec = sources[task]
+            root = Path(spec["input"] if isinstance(spec, dict) else spec)
             if not root.exists():
                 raise FileNotFoundError(f"{task} root not found: {root}")
             if task == "denoise":
                 items = [(p, None) for p in _list_images(root)]
             else:
-                input_dir, target_dir = root / "input", root / "target"
-                for d in (input_dir, target_dir):
-                    if not d.exists():
-                        raise FileNotFoundError(
-                            f"{task} root {root} must contain input/ and "
-                            f"target/; missing {d.name}/")
+                input_dir, target_dir = _paired_dirs(task, sources[task])
                 items = [(p, resolve_pair_target(p, target_dir, task))
                          for p in _list_images(input_dir)]
             if not items:

@@ -210,6 +210,53 @@ def test_missing_input_dir_names_what_is_missing(roots, tmp_path) -> None:
         _ds({**roots, "derain": tmp_path / "bare"})
 
 
+def test_explicit_input_target_dirs_for_a_foreign_layout(roots, tmp_path) -> None:
+    """RESIDE OTS ships `synthetic/part1..4/` beside `clear/` — no `input/`.
+
+    The published layout must be usable by naming the two directories, without
+    reshaping 72,135 files on disk to satisfy a naming convention.
+    """
+    ots = tmp_path / "ots"
+    for part, stems in (("part1", ("0025", "0039")), ("part2", ("3068",))):
+        for stem in stems:
+            for beta in ("0.8_0.04", "0.9_0.20"):
+                _img(ots / "synthetic" / part / f"{stem}_{beta}.jpg", hash(stem) % 99)
+            _img(ots / "clear" / f"{stem}.png", 400 + int(stem))
+
+    ds = MultiTaskTrainDataset(
+        {"dehaze": {"input": ots / "synthetic", "target": ots / "clear"}},
+        patch_size=PATCH, length=30, cache_budget_gb=0.01)
+
+    # Recursive listing: the part1/part2 split must survive, not be flattened away.
+    assert len(ds.items["dehaze"]) == 6, ds.items["dehaze"]
+    parts = {p.parent.name for p, _ in ds.items["dehaze"]}
+    assert parts == {"part1", "part2"}
+    # Both haze levels of a stem resolve to its one clear source.
+    by_input = {src.name: tgt.name for src, tgt in ds.items["dehaze"]}
+    assert by_input["0025_0.8_0.04.jpg"] == by_input["0025_0.9_0.20.jpg"] == "0025.png"
+    degraded, clean, meta = ds[0]
+    assert degraded.shape == clean.shape == (3, PATCH, PATCH)
+    assert meta["task"] == TASK_IDS["dehaze"]
+
+
+def test_explicit_dirs_must_name_both(roots, tmp_path) -> None:
+    with pytest.raises(ValueError, match="must give 'input' and 'target'"):
+        _ds({**roots, "derain": {"input": roots["derain"] / "input"}})
+
+
+def test_explicit_dirs_that_do_not_exist_say_which(roots, tmp_path) -> None:
+    with pytest.raises(FileNotFoundError, match="derain target directory not found"):
+        _ds({**roots, "derain": {"input": roots["derain"] / "input",
+                                 "target": tmp_path / "nope"}})
+
+
+def test_bare_path_error_points_at_the_explicit_form(roots, tmp_path) -> None:
+    """The convention failing must say what to do instead, not just what broke."""
+    (tmp_path / "bare" / "target").mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match=r'\{"input": \.\.\., "target": \.\.\.\}'):
+        _ds({**roots, "derain": tmp_path / "bare"})
+
+
 def test_unpairable_image_fails_before_training_starts(roots) -> None:
     """Every pair resolves at construction — not eight hours into a run."""
     _img(roots["derain"] / "input" / "orphan.png", 999)
