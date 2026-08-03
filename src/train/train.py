@@ -17,6 +17,7 @@ import torch
 
 from src.data.build import (build_multitask_loader, build_train_loader,
                             resolve_task_sources)
+import src.models.norms as norms
 from src.models.nafnet import NAFNet
 from src.train.trainer import Trainer
 from src.utils.config import REPO_ROOT, load_paths, load_yaml
@@ -67,6 +68,18 @@ ARMS: dict[str, dict] = {
     "B0-QA": {"norm": {"norm_type": "layernorm2d"},
               "config": "configs/train/b0_qa_control.yaml",
               "desc": "Q-A control: full LayerNorm2d on w16_sidd, B0 schedule"},
+    # B0-v2 — the ALL-IN-ONE baseline, which is the one the protocol actually
+    # asks for. Same locked architecture as B0-denoise so the two are directly
+    # comparable, plus the enc3 clamp insurance and continuous sigma (F10).
+    # B0-denoise is retained as the single-task control, not as this (F11).
+    "B0V2": {"norm": {"norm_type": "layernorm2d",
+                      "full_res_norm_type": "affine_clamp", "clamp_bound": 8.0,
+                      # enc3 insurance (F10). Listed here as well as in the YAML
+                      # because the drift guard compares the two and refuses to
+                      # merge them — which is what caught this being absent.
+                      "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+             "config": "configs/train/b0v2_multitask.yaml",
+             "desc": "B0-v2: 3-degradation all-in-one baseline, GT only"},
 }
 
 #: w16_b8 — the config on which every norm variant is already profiled (arm S).
@@ -82,7 +95,7 @@ W16_SIDD = dict(width=16, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12,
 
 #: Arms that override the default geometry.
 ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
-                "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD}
+                "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD, "B0V2": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:
@@ -218,6 +231,17 @@ def main() -> None:
     else:
         run_root.mkdir(parents=True, exist_ok=True)
         run_dir = create_run_dir(run_root, args.arm, config=cfg, seed=args.seed)
+
+    # Clamp telemetry, from config rather than a source edit. This was a local
+    # uncommitted change to norms.py on the training host for all of B0-denoise,
+    # which means a fresh checkout would have recorded nothing — and the
+    # engagement drift it captures is the whole of finding F12. A run's own
+    # config.yaml now states whether its clamp diagnostics are real or absent.
+    #
+    # Costs one .abs().max() and one comparison per clamped norm per forward, so
+    # it is off by default and on for the runs that are being watched.
+    norms.TRACK_CLAMP_ENGAGEMENT = bool(
+        cfg["train"].get("track_clamp_engagement", False))
 
     # Read from the RESOLVED config, not from args — for a YAML-backed arm the
     # file is authoritative and the CLI defaults no longer describe the run.

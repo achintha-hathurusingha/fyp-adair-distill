@@ -117,6 +117,20 @@ train:
   ckpt_every: 5000
   seeds: [0, 1, 2]
 
+  # F12 WATCH ITEM. Clamp engagement rate rose significantly on all three
+  # B0-denoise seeds (Mann-Kendall p<0.001 each), ending at 0.06/2.35/1.67%
+  # against a bound of 8.0. On this run both clamps are instrumented from
+  # iteration 0 and reported separately: `clampeng`/`premax` for dec3 at full
+  # resolution, `deepeng`/`deeppremax` for the enc3 insurance.
+  #
+  # STOP AND RE-RUN THE AGC DIAGNOSTIC if dec3 engagement passes ~5%, or if
+  # enc3 engages at all — it is expected to stay at exactly 0.00%.
+  #
+  # This was an uncommitted edit to norms.py for the whole of B0-denoise. A
+  # fresh checkout would have logged nothing, and F12 would have been
+  # unobservable on the run it was written to inform.
+  track_clamp_engagement: true
+
 loss:
   name: charbonnier       # reconstruction ONLY — Phase 01 admits nothing else
   eps: 1.0e-3

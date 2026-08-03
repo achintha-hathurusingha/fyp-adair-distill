@@ -1085,6 +1085,42 @@ That was half wrong. The **spikes** do stop on every seed (last at 185k, 215k,
 over their full length. A single control run was enough to explain one series
 and not the other, and I generalised from it to both.
 
+### The gate built to catch this agreed with whatever it was shown
+
+`scripts/sigma_sweep.py` was written to be the F10 gate — the instrument that
+decides whether B0-v2's sigma fix worked. Its first version passed `uint8`
+arrays to `psnr()`, whose `MetricConfig` has `data_range = 1.0` and
+`clip = True`. Every value above 1 clipped to 1, both images became uniformly
+saturated and therefore **identical**, and the metric returned `inf`.
+
+`inf` clears a `>= 25 dB` threshold. A model that had replaced its input with a
+saturated checkerboard would have scored as perfect.
+
+It surfaced only because sigma 0 and 5 were catastrophic enough to fail on other
+grounds, which is luck rather than method: at sigma 8, 10, 15, 25 and 50 the
+first run printed `inf` and I read it as a suspicious formatting artifact rather
+than as a passing grade.
+
+This is the third instance of one failure class in this project:
+
+| where | the instrument | how it agreed |
+|---|---|---|
+| Task 2 | known-answer test | answer fabricated to match the implementation |
+| F9 | per-step loss trace | logged only the last micro-batch, hiding a loss of 7931 |
+| F10 gate | sigma sweep | `inf` for a destroyed image, scored as perfect |
+
+Each time the instrument returned a **pass** in precisely the case where a
+failure mattered most. A validation tool that cannot disagree is worse than no
+tool, because it converts an unknown into a false assurance.
+
+Two things follow, and both are now done. A non-finite PSNR raises instead of
+grading — an unmeasurable result is not a passing one. And the gate was
+validated by running it against the model it must condemn: on B0-denoise seed 0
+it reproduces F10 (5.06 / 5.27 / 13.38 dB at sigma 0/5/8, cliff between 8 and
+10, clean-input change 122.67/255) and reports FAIL. **A gate that has never
+failed anything has not been tested**, and this one now has a recorded failure
+before it is ever asked for a pass.
+
 ### Watch, not fix
 
 No change is made on this evidence. The pre-committed reading says not to switch

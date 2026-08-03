@@ -27,7 +27,8 @@ from src.data.datasets import build_dataset
 from src.eval.evaluate import evaluate
 from src.eval.metrics import ADAIR_DEFAULT
 from src.losses.reconstruction import build_loss
-from src.models.norms import AffineClampNorm2d
+from src.models.norms import (AffineClampNorm2d, LayerNorm2dClamp,
+                              reset_clamp_engagement)
 from src.utils.logging import get_logger
 from src.utils.seeding import capture_rng_state, restore_rng_state, seed_everything
 
@@ -207,19 +208,31 @@ class Trainer:
         it is silently reshaping normal training, and the bound is too tight —
         which would trade a divergence for a quality regression.
         """
-        mods = [m for m in self.model.modules()
-                if isinstance(m, AffineClampNorm2d)]
-        fwd = sum(getattr(m, "forwards", 0) for m in mods)
-        if not fwd:
-            return {}
-        eng = sum(getattr(m, "engaged", 0) for m in mods)
-        els = sum(getattr(m, "elements_clamped", 0) for m in mods)
-        mag = max((getattr(m, "max_preclamp", 0.0) for m in mods), default=0.0)
-        for m in mods:          # reset each interval
-            m.forwards = m.engaged = m.elements_clamped = 0
-            m.max_preclamp = 0.0
-        return {"clamp_engage_rate": eng / fwd, "clamp_elements": els,
-                "clamp_max_preclamp": mag}
+        # Reported PER SITE. The two clamps guard different failure modes at
+        # opposite ends of the network -- affine_clamp at full resolution (F9,
+        # dec3) and layernorm_clamp deep in the encoder (F10, enc3) -- so
+        # summing them would let a rising deep-stage rate hide inside a
+        # full-resolution rate that is already percent-scale (F12).
+        #
+        # The unprefixed keys stay on the full-resolution clamp so history.json
+        # from B0-denoise and from B0-v2 remain directly comparable, and
+        # scripts/trend_test.py keeps reading both without a special case.
+        groups = (("clamp", AffineClampNorm2d), ("deep_clamp", LayerNorm2dClamp))
+        out: dict[str, float] = {}
+        for prefix, cls in groups:
+            mods = [m for m in self.model.modules() if isinstance(m, cls)]
+            fwd = sum(getattr(m, "forwards", 0) for m in mods)
+            if not fwd:
+                continue
+            eng = sum(getattr(m, "engaged", 0) for m in mods)
+            els = sum(getattr(m, "elements_clamped", 0) for m in mods)
+            mag = max((getattr(m, "max_preclamp", 0.0) for m in mods), default=0.0)
+            for m in mods:          # reset each interval
+                reset_clamp_engagement(m)
+            out[f"{prefix}_engage_rate"] = eng / fwd
+            out[f"{prefix}_elements"] = els
+            out[f"{prefix}_max_preclamp"] = mag
+        return out
 
     def _trace(self, it: int, lr: float, loss: float, gn: float) -> None:
         """Append one CSV row of per-step diagnostics.
@@ -510,6 +523,13 @@ class Trainer:
                         + (f"clampeng {row['clamp_engage_rate']:.2%} "
                            f"premax {row['clamp_max_preclamp']:.4g}  "
                            if "clamp_engage_rate" in row else "")
+                        # Deep-stage clamp printed only when it EXISTS, and
+                        # its engagement is the F12 watch item: it is
+                        # expected to stay at 0.00%, so a non-zero value
+                        # here is the signal, not noise.
+                        + (f"deepeng {row['deep_clamp_engage_rate']:.2%} "
+                           f"deeppremax {row['deep_clamp_max_preclamp']:.4g}  "
+                           if "deep_clamp_engage_rate" in row else "")
                         + f"vram {peak:.2f}GB")
                     loss_accum, n_accum = 0.0, 0
                     max_gnorm, clip_hits = 0.0, 0

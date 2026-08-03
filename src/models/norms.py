@@ -137,6 +137,41 @@ class AffineNorm2d(nn.Module):
         return x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
 
 
+def record_clamp_engagement(module: nn.Module, x: torch.Tensor) -> None:
+    """Accumulate this interval's clamp diagnostics onto ``module``.
+
+    Shared by every clamped norm so a new clamp site cannot be added without
+    telemetry — which is exactly what happened to ``LayerNorm2dClamp``: it
+    shipped as F10 insurance with no counters at all, so the finding it was
+    meant to let us watch (F12) would have been unobservable at that site.
+
+    Records the **pre-clamp** magnitude, not just fire/no-fire. Engagement count
+    alone cannot distinguish "catches a stable large event occasionally" from
+    "catches an increasingly large event occasionally" — both give the same
+    rate. The magnitude is what says whether the bound still has headroom.
+
+    Plain attributes, deliberately NOT buffers: a buffer would enter
+    ``state_dict`` and break weight compatibility between the affine, clamped
+    and layernorm variants, which is what makes the F9 fix comparison possible.
+    """
+    if not TRACK_CLAMP_ENGAGEMENT:
+        return
+    module.forwards = getattr(module, "forwards", 0) + 1
+    mag = float(x.abs().max())
+    if mag > getattr(module, "max_preclamp", 0.0):
+        module.max_preclamp = mag
+    over = int((x.abs() > module.bound).sum())
+    if over:
+        module.engaged = getattr(module, "engaged", 0) + 1
+        module.elements_clamped = getattr(module, "elements_clamped", 0) + over
+
+
+def reset_clamp_engagement(module: nn.Module) -> None:
+    """Zero one module's counters at an interval boundary."""
+    module.forwards = module.engaged = module.elements_clamped = 0
+    module.max_preclamp = 0.0
+
+
 class AffineClampNorm2d(nn.Module):
     """N-F-clamp: affine, then a hard magnitude bound. No statistics.
 
@@ -172,23 +207,7 @@ class AffineClampNorm2d(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
-        if TRACK_CLAMP_ENGAGEMENT:
-            # Plain attributes, deliberately NOT buffers: a buffer would enter
-            # state_dict and break weight compatibility with the affine and
-            # layernorm variants, which is what makes the fix comparison possible.
-            self.forwards = getattr(self, "forwards", 0) + 1
-            mag = float(x.abs().max())
-            # Track the PRE-clamp magnitude, not just fire/no-fire. Engagement
-            # count cannot distinguish "catches a stable 1264-magnitude event
-            # occasionally" from "catches an increasingly large event
-            # occasionally" — both give the same rate. The magnitude is what
-            # says whether the bound has headroom.
-            if mag > getattr(self, "max_preclamp", 0.0):
-                self.max_preclamp = mag
-            over = int((x.abs() > self.bound).sum())
-            if over:
-                self.engaged = getattr(self, "engaged", 0) + 1
-                self.elements_clamped = getattr(self, "elements_clamped", 0) + over
+        record_clamp_engagement(self, x)
         return torch.clamp(x, -self.bound, self.bound)
 
 
@@ -223,7 +242,11 @@ class LayerNorm2dClamp(LayerNorm2d):
         self.bound = DEEP_CLAMP_BOUND if bound is None else bound
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.clamp(super().forward(x), -self.bound, self.bound)
+        x = super().forward(x)
+        # Same telemetry as the full-resolution clamp. F12's watch item is
+        # "does enc3 engage at all"; without this it could not be answered.
+        record_clamp_engagement(self, x)
+        return torch.clamp(x, -self.bound, self.bound)
 
 
 class IdentityNorm2d(nn.Module):

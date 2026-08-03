@@ -426,3 +426,86 @@ def test_loader_carries_sigma_alongside_the_task(roots) -> None:
     assert set(float(s) for s in sigmas) <= {15.0, 25.0, 50.0}
     others = meta["sigma"][meta["task"] != TASK_IDS["denoise"]]
     assert all(float(s) == -1.0 for s in others)
+
+
+# ------------------------------------------ clamp telemetry is config-driven
+
+
+def test_track_clamp_engagement_is_read_from_config(monkeypatch, tmp_path) -> None:
+    """The flag must be set by the ENTRY POINT from config, not a source edit.
+
+    For all of B0-denoise this was an uncommitted change to norms.py on the
+    training host. A fresh checkout would have recorded no clamp diagnostics at
+    all, and F12 -- the finding those diagnostics produced -- would have been
+    unobservable on the very run written to inform it.
+
+    Runs train.main() for real and reads the module flag at the moment the
+    loader is built, rather than re-executing the assignment here: a test that
+    repeats the code under test proves only that the test works.
+    """
+    import sys
+
+    import src.models.norms as norms
+    from src.train import train as train_mod
+
+    original = norms.TRACK_CLAMP_ENGAGEMENT
+    seen = {}
+
+    def fake_run_dir(runs_root, experiment, *, config, seed):
+        d = tmp_path / "run"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def stop(*a, **k):
+        seen["flag"] = norms.TRACK_CLAMP_ENGAGEMENT   # as the run would see it
+        raise SystemExit(0)
+
+    try:
+        # Start from the OPPOSITE of what the config asks for, so a flag that is
+        # never assigned fails rather than passing on the default.
+        norms.TRACK_CLAMP_ENGAGEMENT = False
+        monkeypatch.setattr(train_mod, "create_run_dir", fake_run_dir)
+        monkeypatch.setattr(train_mod, "build_multitask_loader", stop)
+        monkeypatch.setattr(train_mod, "build_train_loader", stop)
+        monkeypatch.setattr(sys, "argv",
+                            ["train", "--arm", "B0V2", "--device", "cpu"])
+        with pytest.raises(SystemExit):
+            train_mod.main()
+        assert seen["flag"] is True, (
+            "b0v2_multitask.yaml sets track_clamp_engagement: true but the "
+            "entry point did not turn it on -- the run would log no clamp "
+            "telemetry, which is exactly the F12 blind spot")
+
+        # And it must be genuinely driven, not hardcoded on: B0-denoise's config
+        # does not set it, so that arm must come back off.
+        norms.TRACK_CLAMP_ENGAGEMENT = True
+        seen.clear()
+        monkeypatch.setattr(sys, "argv",
+                            ["train", "--arm", "B0", "--device", "cpu"])
+        with pytest.raises(SystemExit):
+            train_mod.main()
+        assert seen["flag"] is False, "flag is hardcoded on, not read from config"
+    finally:
+        norms.TRACK_CLAMP_ENGAGEMENT = original
+
+
+def test_deep_clamp_records_engagement_too() -> None:
+    """LayerNorm2dClamp shipped with no counters -- F12's enc3 watch item
+    could not have been answered at all. Both clamp types must record."""
+    import torch as _torch
+
+    import src.models.norms as norms
+
+    original = norms.TRACK_CLAMP_ENGAGEMENT
+    try:
+        norms.TRACK_CLAMP_ENGAGEMENT = True
+        deep = norms.build_norm("layernorm2d_clamp", 4, deep_clamp_bound=0.5)
+        deep(_torch.randn(2, 4, 8, 8) * 10)
+        assert getattr(deep, "forwards", 0) == 1
+        assert getattr(deep, "engaged", 0) == 1, "deep clamp fired but did not count"
+        assert getattr(deep, "max_preclamp", 0.0) > 0.5
+        # Still no state_dict pollution -- weight compatibility is what makes
+        # the F9 fix comparison possible.
+        assert list(deep.state_dict()) == ["weight", "bias"], list(deep.state_dict())
+    finally:
+        norms.TRACK_CLAMP_ENGAGEMENT = original
