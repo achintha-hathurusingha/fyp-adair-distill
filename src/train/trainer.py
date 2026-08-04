@@ -134,6 +134,7 @@ class Trainer:
         # and B0-v2 are unchanged; a single-task run overrides it, because
         # validating a dehaze model on BSD68 measures nothing it trains for.
         self.val_task = (cfg.get("eval") or {}).get("val_task", "denoise")
+        self.log = get_logger("train", run_dir=run_dir)
 
         # Optional frozen teacher for response distillation. Absent by default,
         # and every baseline in this project asserts it stays absent -- a
@@ -152,7 +153,6 @@ class Trainer:
             self.teacher = load_teacher(dcfg["teacher"], device=device)
             self.log.info(f"teacher: {Path(dcfg['teacher']).name} "
                           f"(frozen, eval) | kd weight {self.kd_weight}")
-        self.log = get_logger("train", run_dir=run_dir)
 
         opt_cfg = cfg.get("optim", {})
         wd = opt_cfg.get("weight_decay", 1e-4)
