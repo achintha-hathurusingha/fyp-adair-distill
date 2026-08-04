@@ -576,3 +576,55 @@ def test_empty_or_absent_subset_list_is_rejected(tmp_path) -> None:
             {"derain": {"input": root / "input", "target": root / "target",
                         "list": tmp_path / "nope.txt"}},
             patch_size=PATCH, length=10, cache_budget_gb=0.01)
+
+
+# ---------------------------------------------------------- response distillation
+
+
+def test_baseline_configs_have_no_teacher() -> None:
+    """A baseline that quietly gained a teacher term would invalidate every
+    delta measured against it. Assert the absence, do not assume it."""
+    import yaml
+
+    from src.utils.config import REPO_ROOT
+
+    for name in ("b0_baseline", "b0v2_multitask", "m_dehaze_baseline"):
+        p = REPO_ROOT / "configs" / "train" / f"{name}.yaml"
+        cfg = yaml.safe_load(p.read_text(encoding="utf-8"))
+        assert not cfg.get("distill"), f"{name}.yaml has a distill block"
+
+
+def test_kd_config_differs_from_its_baseline_only_by_distill() -> None:
+    """The KD run's delta is attributable only if nothing else changed."""
+    import yaml
+
+    from src.utils.config import REPO_ROOT
+
+    base = yaml.safe_load(
+        (REPO_ROOT / "configs/train/m_dehaze_baseline.yaml").read_text(encoding="utf-8"))
+    kd = yaml.safe_load(
+        (REPO_ROOT / "configs/train/m_dehaze_kd.yaml").read_text(encoding="utf-8"))
+    assert kd.get("distill"), "KD config has no distill block"
+    for section in ("arch", "data", "optim", "schedule", "train", "loss", "eval"):
+        assert base[section] == kd[section], (
+            f"section {section!r} differs between the baseline and KD configs; "
+            "the measured delta would not be attributable to distillation")
+    only = set(kd) - set(base)
+    assert only == {"distill"}, f"KD config adds more than distill: {only}"
+
+
+def test_teacher_without_weight_is_rejected(tmp_path) -> None:
+    """No silent fallback to loading a teacher and ignoring it."""
+    import torch as _torch
+
+    from src.models.nafnet import NAFNet
+    from src.train.trainer import Trainer
+
+    model = NAFNet(width=4, enc_blk_nums=[1], middle_blk_num=1, dec_blk_nums=[1])
+    batches = [(_torch.rand(1, 3, 16, 16), _torch.rand(1, 3, 16, 16), 15)]
+    cfg = {"optim": {"lr": 1e-3}, "schedule": {"total_iters": 1},
+           "train": {"accum_steps": 1, "amp": False},
+           "loss": {"name": "charbonnier"},
+           "distill": {"teacher": "some/path.ckpt", "weight": 0.0}}
+    with pytest.raises(ValueError, match="weight is not positive"):
+        Trainer(model, batches, cfg, tmp_path, device="cpu")

@@ -1,0 +1,97 @@
+# M-DEHAZE-KD — the distilled counterpart of m_dehaze_baseline.yaml.
+#
+# IDENTICAL to the baseline in every respect except the `distill` block below:
+# same architecture, same 4,000-image seeded subset, same schedule, same seed,
+# same optimiser, same held-out set. That is the whole point — if anything else
+# differed, the delta between the two runs would not be attributable to
+# distillation.
+#
+# METHOD: response distillation, one added loss term.
+#
+#     loss = Charbonnier(student, ground_truth)
+#          + weight * Charbonnier(student, teacher(same_input))
+#
+# No feature hooks, no adapters, no projectors, no multi-loss schedule. This is
+# a proof of concept for the panel, not Phase 02's grid.
+#
+# WHY THIS IS THE INTERESTING TEST (F7). AdaIR's advantage on dehazing comes
+# from FreModule, which mines the frequency domain via FFT. That mechanism is
+# also exactly why the teacher cannot deploy: aten::fft_fft2 has no ONNX
+# export path, so the teacher failed export on all five attempted routes. The
+# question this run asks is whether the advantage that mechanism buys can be
+# transferred through SUPERVISION ALONE, leaving the student a pure
+# convolutional network that computes no frequencies at inference and exports
+# cleanly. If it can, the teacher's undeployability stops being a blocker.
+#
+# The teacher runs LIVE, not from a cache: the student's input is a random crop
+# chosen per index, so a cache keyed by image would have to be cropped after the
+# fact, and teacher(crop) != crop(teacher(image)) once the receptive field
+# extends past the crop boundary. Live costs throughput and is exact.
+
+experiment: m_dehaze_kd
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  mixed_task: true
+  tasks:
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+      list:   reports/dehaze_train_list.txt
+  num_workers: 8
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 60000
+  warmup_iters: 2000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 2000
+  ckpt_every: 2000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+# THE ONLY DIFFERENCE FROM THE BASELINE.
+distill:
+  teacher: /home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt
+  # Equal weighting of the two terms. Not tuned — a sweep over this would be a
+  # second experiment, and the demo asks whether distillation helps at all, not
+  # what its best setting is. Stated so the number is not mistaken for one that
+  # was optimised.
+  weight: 1.0
+
+eval:
+  harness: src/eval/evaluate.py
+  val_task: dehaze
+  val_root: test/dehaze/demo
+  test_sets: [dehaze_demo_heldout]

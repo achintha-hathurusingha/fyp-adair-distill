@@ -134,6 +134,24 @@ class Trainer:
         # and B0-v2 are unchanged; a single-task run overrides it, because
         # validating a dehaze model on BSD68 measures nothing it trains for.
         self.val_task = (cfg.get("eval") or {}).get("val_task", "denoise")
+
+        # Optional frozen teacher for response distillation. Absent by default,
+        # and every baseline in this project asserts it stays absent -- a
+        # baseline that quietly gained a teacher term would invalidate every
+        # delta measured against it.
+        dcfg = cfg.get("distill") or {}
+        self.teacher = None
+        self.kd_weight = float(dcfg.get("weight", 0.0))
+        self._kd_last = 0.0
+        if dcfg.get("teacher"):
+            if self.kd_weight <= 0:
+                raise ValueError(
+                    "distill.teacher is set but distill.weight is not positive; "
+                    "that would load a teacher and ignore it.")
+            from src.models.teacher_wrapper import load_teacher
+            self.teacher = load_teacher(dcfg["teacher"], device=device)
+            self.log.info(f"teacher: {Path(dcfg['teacher']).name} "
+                          f"(frozen, eval) | kd weight {self.kd_weight}")
         self.log = get_logger("train", run_dir=run_dir)
 
         opt_cfg = cfg.get("optim", {})
@@ -429,6 +447,17 @@ class Trainer:
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.amp):
                     pred = self.model(degraded)
                     loss = self.criterion(pred.float(), clean)
+                    if self.teacher is not None:
+                        # Response distillation: one extra term, matching the
+                        # teacher's OUTPUT on the same input. No hooks, no
+                        # adapters, no feature matching -- the student never
+                        # learns to compute frequencies, only to reproduce what
+                        # doing so produced (F7).
+                        with torch.no_grad():
+                            soft = self.teacher(degraded)
+                        kd = self.criterion(pred.float(), soft.float())
+                        loss = loss + self.kd_weight * kd
+                        self._kd_last = float(kd)
 
                 # Divide so accumulated gradients AVERAGE over the effective
                 # batch rather than summing — otherwise the effective learning
