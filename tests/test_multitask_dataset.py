@@ -628,3 +628,53 @@ def test_teacher_without_weight_is_rejected(tmp_path) -> None:
            "distill": {"teacher": "some/path.ckpt", "weight": 0.0}}
     with pytest.raises(ValueError, match="weight is not positive"):
         Trainer(model, batches, cfg, tmp_path, device="cpu")
+
+
+def test_every_yaml_section_reaches_the_resolved_config() -> None:
+    """A reviewed YAML section that the merge drops is invisible twice over.
+
+    `eval` and `distill` were read downstream (`self.val_task`, `self.teacher`)
+    and present in the reviewed files, so the dead-config-key check passed on a
+    grep -- yet the merge listed only five sections, so neither ever reached the
+    code. Consequences: the dehaze run validated on BSD68 denoising, and the KD
+    run would have loaded NO teacher and silently trained a duplicate baseline.
+
+    This asserts the VALUES arrive, not that the key appears somewhere.
+    """
+    import yaml
+
+    from src.train import train as train_mod
+    from src.utils.config import REPO_ROOT
+
+    for arm, name in (("M-DEHAZE", "m_dehaze_baseline"),
+                      ("M-DEHAZE-KD", "m_dehaze_kd"),
+                      ("B0V2", "b0v2_multitask")):
+        yml = yaml.safe_load(
+            (REPO_ROOT / "configs" / "train" / f"{name}.yaml").read_text(encoding="utf-8"))
+        cfg = train_mod.build_config(arm, 1000, 8, 1e-3)
+        for section, want in yml.items():
+            # `arch` is deliberately NOT merged: the drift guard compares it
+            # against cfg["model"] and refuses to reconcile a disagreement, so
+            # it is validated more strictly than merging would.
+            if not isinstance(want, dict) or section == "arch":
+                continue
+            got = cfg.get(section)
+            assert got is not None, f"{arm}: section {section!r} dropped by the merge"
+            for k, v in want.items():
+                assert got.get(k) == v, (
+                    f"{arm}: {section}.{k} is {got.get(k)!r} in the resolved "
+                    f"config but {v!r} in {name}.yaml")
+
+
+def test_kd_arm_actually_configures_a_teacher() -> None:
+    """The distill block must survive into the config the Trainer receives."""
+    from src.train import train as train_mod
+
+    cfg = train_mod.build_config("M-DEHAZE-KD", 1000, 8, 1e-3)
+    assert cfg.get("distill", {}).get("teacher"), (
+        "M-DEHAZE-KD resolves with no teacher — it would train GT-only and the "
+        "distillation delta would be measured against itself")
+    assert cfg["distill"]["weight"] > 0
+
+    base = train_mod.build_config("M-DEHAZE", 1000, 8, 1e-3)
+    assert not base.get("distill"), "the GT-only baseline resolved with a teacher"

@@ -115,9 +115,9 @@ def main() -> int:
     for name, model in models.items():
         res = evaluate(model, iter(samples), name=name, config=ADAIR_DEFAULT,
                        device=args.device, keep_per_image=False)
-        results[name] = {"psnr": res.psnr, "ssim": res.ssim, "images": res.count}
+        results[name] = {"psnr": res.psnr, "ssim": res.ssim, "images": res.n_images}
         print(f"{name:<22} psnr {res.psnr:7.4f}  ssim {res.ssim:.4f}  "
-              f"n={res.count}")
+              f"n={res.n_images}")
 
     t = results["AdaIR (teacher)"]
     print()

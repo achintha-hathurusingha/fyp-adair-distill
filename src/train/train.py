@@ -132,8 +132,16 @@ def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:
                 f"src/train/train.py — '{key}' is {want!r} in the YAML but "
                 f"{got!r} in the resolved config. Fix one; do not merge.")
 
-    for section in ("data", "optim", "schedule", "train", "loss"):
-        cfg[section].update(yml.get(section, {}))
+    # Every section the YAML may carry. `eval` and `distill` were missing here
+    # while both were read downstream, so the values existed in the reviewed
+    # file, were referenced in the code, and still never met: the dehaze run
+    # validated on BSD68 denoising, and the KD run would have loaded no teacher
+    # at all and silently trained a duplicate baseline. A section absent from
+    # the base config is created rather than skipped -- `eval` and `distill`
+    # have no defaults, which is exactly why they were dropped.
+    for section in ("data", "optim", "schedule", "train", "loss", "eval", "distill"):
+        if section in yml:
+            cfg.setdefault(section, {}).update(yml[section])
 
     # CLI --iters / --batch-size are ablation conveniences. For a reviewed run
     # the YAML wins, so an accidental flag cannot quietly shorten B0.
