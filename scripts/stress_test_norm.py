@@ -75,6 +75,79 @@ def adversarial_inputs(patch: int, device: str) -> dict[str, torch.Tensor]:
     return cases
 
 
+def dehaze_inputs(patch: int, device: str) -> dict[str, torch.Tensor]:
+    """Haze-shaped worst cases: high mean, low contrast, low saturation.
+
+    Haze is physically ``I = J*t + A*(1-t)`` — the scene is compressed toward a
+    bright atmospheric constant as transmission ``t`` falls. Dense haze
+    therefore produces the OPPOSITE extreme from the crop that killed B0: not a
+    dark low-variance patch but a *bright* one, with variance shrinking as
+    density rises. Both are low-variance, and F10 showed low-variance input is
+    where this architecture is fragile, so the bright branch is worth testing
+    explicitly rather than assumed to be covered by the dark one.
+
+    ``t -> 0`` is the limit worth probing: the input approaches a constant
+    atmospheric colour carrying no scene signal at all, and the model is asked
+    to recover a full image from it.
+    """
+    z = torch.zeros(1, 3, patch, patch, device=device)
+    scene = torch.rand_like(z) * 0.6 + 0.2          # a plausible clear scene
+    cases = {}
+    # Airlight A near white, per the standard atmospheric model.
+    A = torch.tensor([0.92, 0.94, 0.96], device=device)[None, :, None, None]
+    for t in (0.9, 0.5, 0.2, 0.05, 0.01):
+        cases[f"haze-t{t}"] = (scene * t + A * (1 - t)).clamp(0, 1)
+    cases["haze-t0(pure-airlight)"] = A.expand_as(z).clone()
+    # Veiling with a vertical density gradient — the usual real-image shape,
+    # dense at the horizon and thinning toward the foreground.
+    grad = torch.linspace(0.02, 0.85, patch, device=device)[None, None, :, None]
+    cases["haze-gradient"] = (scene * grad + A * (1 - grad)).clamp(0, 1)
+    # Near-zero contrast at high mean: the bright mirror of "near-zero-var".
+    cases["fog-flat-bright"] = (torch.full_like(z, 0.93)
+                                + torch.randn_like(z) * 0.002).clamp(0, 1)
+    # Desaturated grey-out: haze also collapses colour, not just contrast.
+    grey = (torch.rand_like(z[:, :1]) * 0.05 + 0.88).expand_as(z)
+    cases["fog-desaturated"] = grey.clone()
+    return cases
+
+
+def real_hazy_crops(patch: int, device: str, n: int = 3) -> dict[str, torch.Tensor]:
+    """The lowest-variance crops in the REAL RESIDE-OTS training set.
+
+    Same reasoning as ``real_dark_crops``: synthetic worst cases turned out not
+    to reproduce the B0 failure at all, and only genuine data did. If dehaze has
+    a fragile input, it is far more likely to look like this than like anything
+    invented above.
+    """
+    paths = load_paths()
+    root = Path(paths["data_root"])
+    if not root.is_absolute():
+        root = REPO_ROOT / root
+    root = root / "Train" / "Dehaze" / "synthetic"
+    if not root.exists():
+        return {}
+    files = sorted(p for p in root.rglob("*")
+                   if p.suffix.lower() in {".png", ".jpg", ".jpeg"})
+    if not files:
+        return {}
+    scored = []
+    for f in files[::997]:                     # ~72 of 72,135, spread across parts
+        try:
+            img = load_rgb_uint8(f, base=1)
+        except Exception:
+            continue
+        a = img[:patch, :patch]
+        if a.shape[0] < patch or a.shape[1] < patch:
+            continue
+        scored.append((float(a.std()) / 255.0, f, a))
+    scored.sort(key=lambda t: t[0])
+    out = {}
+    for std, f, a in scored[:n]:
+        t = torch.from_numpy(np.ascontiguousarray(a.transpose(2, 0, 1)))
+        out[f"hazy:{f.name}(std{std:.3f})"] = (t.float() / 255.0)[None].to(device)
+    return out
+
+
 def real_dark_crops(patch: int, device: str, n: int = 3) -> dict[str, torch.Tensor]:
     """The lowest-variance crops in the real training set.
 
@@ -131,6 +204,8 @@ def main() -> None:
     ap.add_argument("--patch", type=int, default=128)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--geometry", default=None, choices=sorted(GEOMETRIES))
+    ap.add_argument("--dehaze", action="store_true",
+                    help="add haze-shaped worst cases and real RESIDE-OTS crops")
     args = ap.parse_args()
 
     state = None
@@ -148,6 +223,11 @@ def main() -> None:
 
     cases = adversarial_inputs(args.patch, args.device)
     cases.update(real_dark_crops(args.patch, args.device))
+    if args.dehaze:
+        cases.update(dehaze_inputs(args.patch, args.device))
+        hazy = real_hazy_crops(args.patch, args.device)
+        cases.update(hazy)
+        print(f"          + dehaze-shaped cases, {len(hazy)} real hazy crops")
     if args.weights and "micro_batches" in blob:
         spikes = spike_samples(blob, args.device)
         cases.update(spikes)

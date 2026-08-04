@@ -60,10 +60,17 @@ def resolve_task_sources(tasks: dict, data_root: Path) -> dict:
     cannot resolve the same config differently, which is the sort of divergence
     that let B0-denoise train on a scope its config did not describe (F11).
     """
+    from src.utils.config import REPO_ROOT
+
     out: dict = {}
     for task, spec in tasks.items():
         if isinstance(spec, dict):
-            out[task] = {k: data_root / v for k, v in spec.items()}
+            # Directories are data and resolve against data_root; a `list` is a
+            # recorded artifact and lives with the repo, so it resolves against
+            # REPO_ROOT. Silently resolving both the same way would put subset
+            # manifests inside the dataset, where they are not version-tracked.
+            out[task] = {k: ((REPO_ROOT / v) if k == "list" else (data_root / v))
+                         for k, v in spec.items()}
         else:
             out[task] = data_root / spec
     return out
@@ -104,6 +111,39 @@ def _paired_dirs(task: str, spec) -> tuple[Path, Path]:
                 f"{d.name}/. If the data uses a different layout, pass "
                 f'{{"input": ..., "target": ...}} instead of a bare path.')
     return input_dir, target_dir
+
+
+def _listed_images(spec, input_dir: Path) -> list[Path]:
+    """Input images for a paired task: the whole directory, or an explicit list.
+
+    A ``list`` key names a text file of paths relative to ``input_dir``. It
+    exists so a run can train on a *recorded, reproducible subset* — the demo
+    dehaze runs use a few thousand of RESIDE-OTS's 72,135 pairs, and "a few
+    thousand chosen somehow" is not a result anyone can repeat. The file is the
+    record; the script that wrote it records the seed.
+
+    Every listed path must exist. A list that has drifted from the data on disk
+    silently shrinks the training set, which is unrecoverable after the fact.
+    """
+    if not (isinstance(spec, dict) and spec.get("list")):
+        return _list_images(input_dir)
+
+    list_path = Path(spec["list"])
+    if not list_path.exists():
+        raise FileNotFoundError(f"subset list not found: {list_path}")
+    names = [ln.strip() for ln in
+             list_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    if not names:
+        raise ValueError(f"subset list {list_path} is empty")
+    files, missing = [], []
+    for n in names:
+        p = input_dir / n
+        (files if p.exists() else missing).append(p)
+    if missing:
+        raise FileNotFoundError(
+            f"{len(missing)} of {len(names)} files in {list_path.name} are "
+            f"missing under {input_dir}, e.g. {missing[0].name}")
+    return files
 
 
 def _pad_to_patch(img: np.ndarray, patch_size: int) -> np.ndarray:
@@ -324,8 +364,9 @@ class MultiTaskTrainDataset(Dataset):
                 items = [(p, None) for p in _list_images(root)]
             else:
                 input_dir, target_dir = _paired_dirs(task, sources[task])
+                inputs = _listed_images(sources[task], input_dir)
                 items = [(p, resolve_pair_target(p, target_dir, task))
-                         for p in _list_images(input_dir)]
+                         for p in inputs]
             if not items:
                 raise FileNotFoundError(f"no images for task {task!r} under {root}")
             self.items[task] = items

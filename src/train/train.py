@@ -80,6 +80,18 @@ ARMS: dict[str, dict] = {
                       "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
              "config": "configs/train/b0v2_multitask.yaml",
              "desc": "B0-v2: 3-degradation all-in-one baseline, GT only"},
+    # Demo arms: single-task dehazing, GT-only and its distilled counterpart.
+    # Same locked architecture as B0-v2 so the only difference is the loss.
+    "M-DEHAZE": {"norm": {"norm_type": "layernorm2d",
+                          "full_res_norm_type": "affine_clamp", "clamp_bound": 8.0,
+                          "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+                 "config": "configs/train/m_dehaze_baseline.yaml",
+                 "desc": "M on dehaze, ground truth only (gap demo)"},
+    "M-DEHAZE-KD": {"norm": {"norm_type": "layernorm2d",
+                             "full_res_norm_type": "affine_clamp", "clamp_bound": 8.0,
+                             "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+                    "config": "configs/train/m_dehaze_kd.yaml",
+                    "desc": "M on dehaze, GT + response KD from AdaIR (gap demo)"},
 }
 
 #: w16_b8 — the config on which every norm variant is already profiled (arm S).
@@ -95,7 +107,8 @@ W16_SIDD = dict(width=16, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12,
 
 #: Arms that override the default geometry.
 ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
-                "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD, "B0V2": W16_SIDD}
+                "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD, "B0V2": W16_SIDD,
+                "M-DEHAZE": W16_SIDD, "M-DEHAZE-KD": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:
@@ -279,9 +292,20 @@ def main() -> None:
     else:
         loader = build_train_loader([data_root / "Train" / "Denoise"], **common)
 
+    # Validation set from config, defaulting to BSD68 so every existing arm
+    # is unchanged. A single-task arm points this at its own held-out set.
+    val_rel = (cfg.get("eval") or {}).get("val_root")
+    val_root = (data_root / val_rel) if val_rel else (
+        data_root / "test" / "denoise" / "bsd68")
+    if not val_root.exists():
+        raise FileNotFoundError(
+            f"validation set not found: {val_root}. Set eval.val_root in the "
+            "config, or create it — a run with no validation produces no "
+            "convergence evidence.")
+
     model = build_model(cfg)
     trainer = Trainer(model, loader, cfg, run_dir, device=args.device,
-                      val_root=data_root / "test" / "denoise" / "bsd68")
+                      val_root=val_root)
     if args.resume:
         trainer.load_checkpoint(Path(args.resume))
         # A resume reuses the run directory, so config.yaml and git_commit.txt

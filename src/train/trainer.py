@@ -130,6 +130,10 @@ class Trainer:
         self.run_dir = Path(run_dir)
         self.device = device
         self.val_root = val_root
+        # Which task validation runs on. Defaults to denoise so B0-denoise
+        # and B0-v2 are unchanged; a single-task run overrides it, because
+        # validating a dehaze model on BSD68 measures nothing it trains for.
+        self.val_task = (cfg.get("eval") or {}).get("val_task", "denoise")
         self.log = get_logger("train", run_dir=run_dir)
 
         opt_cfg = cfg.get("optim", {})
@@ -352,6 +356,17 @@ class Trainer:
         self.model.eval()
         try:
             results = {}
+            if self.val_task != "denoise":
+                # Paired tasks have no sigma axis: one pass over input/target.
+                # Same locked harness and the same ADAIR_DEFAULT conventions --
+                # only the dataset differs.
+                ds = build_dataset(self.val_task, self.val_root)
+                res = evaluate(self.model, iter(ds), name=self.val_task,
+                               config=ADAIR_DEFAULT, device=self.device,
+                               keep_per_image=False)
+                return {"psnr": res.psnr, "ssim": res.ssim,
+                        f"psnr_{self.val_task}": res.psnr,
+                        f"ssim_{self.val_task}": res.ssim}
             for sigma in (15, 25, 50):
                 ds = build_dataset("denoise", self.val_root, sigma=sigma,
                                    seed_mode="filename")
