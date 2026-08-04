@@ -131,8 +131,11 @@ def _listed_images(spec, input_dir: Path) -> list[Path]:
     list_path = Path(spec["list"])
     if not list_path.exists():
         raise FileNotFoundError(f"subset list not found: {list_path}")
+    # `#` comments carry the seed and counts that make the subset reproducible,
+    # so the manifests are self-describing and the reader must skip them.
     names = [ln.strip() for ln in
-             list_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+             list_path.read_text(encoding="utf-8").splitlines()
+             if ln.strip() and not ln.lstrip().startswith("#")]
     if not names:
         raise ValueError(f"subset list {list_path} is empty")
     files, missing = [], []

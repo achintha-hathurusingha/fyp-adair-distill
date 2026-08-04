@@ -509,3 +509,70 @@ def test_deep_clamp_records_engagement_too() -> None:
         assert list(deep.state_dict()) == ["weight", "bias"], list(deep.state_dict())
     finally:
         norms.TRACK_CLAMP_ENGAGEMENT = original
+
+
+# ------------------------------------------------------ recorded subset lists
+
+
+def _paired_root(tmp_path, n=6):
+    for i in range(n):
+        _img(tmp_path / "src" / "input" / f"a{i}.png", 10 + i)
+        _img(tmp_path / "src" / "target" / f"a{i}.png", 50 + i)
+    return tmp_path / "src"
+
+
+def test_subset_list_selects_only_the_listed_files(tmp_path) -> None:
+    root = _paired_root(tmp_path)
+    lst = tmp_path / "subset.txt"
+    lst.write_text("a1.png\na3.png\n", encoding="utf-8")
+    ds = MultiTaskTrainDataset(
+        {"derain": {"input": root / "input", "target": root / "target",
+                    "list": lst}},
+        patch_size=PATCH, length=10, cache_budget_gb=0.01)
+    assert sorted(p.name for p, _ in ds.items["derain"]) == ["a1.png", "a3.png"]
+
+
+def test_subset_list_skips_comment_headers(tmp_path) -> None:
+    """Manifests carry the seed and counts as `#` lines -- they are not paths.
+
+    Regression: the reader treated the three-line header as filenames and the
+    existence check reported "3 of 4003 files missing", naming a comment as a
+    missing file. It failed loudly and correctly; it just failed for a reason
+    that should not have existed.
+    """
+    root = _paired_root(tmp_path)
+    lst = tmp_path / "subset.txt"
+    lst.write_text("# seed=1234\n# 2 images\na0.png\n\na2.png\n", encoding="utf-8")
+    ds = MultiTaskTrainDataset(
+        {"derain": {"input": root / "input", "target": root / "target",
+                    "list": lst}},
+        patch_size=PATCH, length=10, cache_budget_gb=0.01)
+    assert sorted(p.name for p, _ in ds.items["derain"]) == ["a0.png", "a2.png"]
+
+
+def test_subset_list_with_a_missing_file_fails_loudly(tmp_path) -> None:
+    """A drifted list must not silently shrink the training set."""
+    root = _paired_root(tmp_path)
+    lst = tmp_path / "subset.txt"
+    lst.write_text("a0.png\ngone.png\n", encoding="utf-8")
+    with pytest.raises(FileNotFoundError, match="1 of 2 files"):
+        MultiTaskTrainDataset(
+            {"derain": {"input": root / "input", "target": root / "target",
+                        "list": lst}},
+            patch_size=PATCH, length=10, cache_budget_gb=0.01)
+
+
+def test_empty_or_absent_subset_list_is_rejected(tmp_path) -> None:
+    root = _paired_root(tmp_path)
+    lst = tmp_path / "subset.txt"
+    lst.write_text("# header only\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="is empty"):
+        MultiTaskTrainDataset(
+            {"derain": {"input": root / "input", "target": root / "target",
+                        "list": lst}},
+            patch_size=PATCH, length=10, cache_budget_gb=0.01)
+    with pytest.raises(FileNotFoundError, match="subset list not found"):
+        MultiTaskTrainDataset(
+            {"derain": {"input": root / "input", "target": root / "target",
+                        "list": tmp_path / "nope.txt"}},
+            patch_size=PATCH, length=10, cache_budget_gb=0.01)
