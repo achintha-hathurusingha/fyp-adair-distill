@@ -453,8 +453,15 @@ class Trainer:
                         # adapters, no feature matching -- the student never
                         # learns to compute frequencies, only to reproduce what
                         # doing so produced (F7).
-                        with torch.no_grad():
-                            soft = self.teacher(degraded)
+                        # OUTSIDE autocast, in fp32. AdaIR's FreModule takes an
+                        # FFT, and aten::fft_fft2 has no bfloat16 kernel -- the
+                        # same frequency-domain machinery that makes the teacher
+                        # undeployable (F7) also makes it unable to run in the
+                        # student's training precision. The target is a fixed
+                        # quantity anyway, so computing it at full precision
+                        # costs only throughput.
+                        with torch.no_grad(), torch.autocast("cuda", enabled=False):
+                            soft = self.teacher(degraded.float())
                         kd = self.criterion(pred.float(), soft.float())
                         loss = loss + self.kd_weight * kd
                         self._kd_last = float(kd)
