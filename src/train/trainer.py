@@ -26,6 +26,7 @@ from torch import nn
 from src.data.datasets import build_dataset
 from src.eval.evaluate import evaluate
 from src.eval.metrics import ADAIR_DEFAULT
+from src.losses.frequency import spectrum_loss
 from src.losses.reconstruction import build_loss
 from src.models.norms import (AffineClampNorm2d, LayerNorm2dClamp,
                               reset_clamp_engagement)
@@ -144,6 +145,17 @@ class Trainer:
         self.teacher = None
         self.kd_weight = float(dcfg.get("weight", 0.0))
         self._kd_last = 0.0
+        # Frequency-domain term (F7): asks the student to match the teacher's
+        # SPECTRUM, not just its pixels. Zero weight = absent, and the baselines
+        # assert it stays zero.
+        self.freq_weight = float(dcfg.get("freq_weight", 0.0))
+        self.freq_mode = dcfg.get("freq_mode", "magnitude")
+        self._freq_last = 0.0
+        if self.freq_weight > 0 and not dcfg.get("teacher"):
+            raise ValueError(
+                "distill.freq_weight is set without distill.teacher; the "
+                "frequency term compares against the TEACHER's spectrum and "
+                "has nothing to compare to without one.")
         if dcfg.get("teacher"):
             if self.kd_weight <= 0:
                 raise ValueError(
@@ -465,6 +477,14 @@ class Trainer:
                         kd = self.criterion(pred.float(), soft.float())
                         loss = loss + self.kd_weight * kd
                         self._kd_last = float(kd)
+                        if self.freq_weight > 0:
+                            # Also outside autocast: torch.fft has no bfloat16
+                            # kernel, the same limitation as the teacher itself.
+                            with torch.autocast("cuda", enabled=False):
+                                fq = spectrum_loss(pred.float(), soft.float(),
+                                                   mode=self.freq_mode)
+                            loss = loss + self.freq_weight * fq
+                            self._freq_last = float(fq)
 
                 # Divide so accumulated gradients AVERAGE over the effective
                 # batch rather than summing — otherwise the effective learning

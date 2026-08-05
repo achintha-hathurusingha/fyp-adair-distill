@@ -92,6 +92,15 @@ ARMS: dict[str, dict] = {
                              "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
                     "config": "configs/train/m_dehaze_kd.yaml",
                     "desc": "M on dehaze, GT + response KD from AdaIR (gap demo)"},
+    # Third arm of the KD ablation: response term PLUS a frequency-domain term.
+    # Differs from M-DEHAZE-KD by exactly two config keys.
+    "M-DEHAZE-KD-FREQ": {"norm": {"norm_type": "layernorm2d",
+                                  "full_res_norm_type": "affine_clamp",
+                                  "clamp_bound": 8.0,
+                                  "enc_clamp_stages": [3],
+                                  "deep_clamp_bound": 32.0},
+                         "config": "configs/train/m_dehaze_kd_freq.yaml",
+                         "desc": "M on dehaze, GT + response KD + spectrum KD"},
     # Same methodology on derain, so the two tasks are directly comparable.
     # Much less gap available: the specialist comparison measured +0.25 dB on
     # derain against +1.6 dB on dehaze.
@@ -122,7 +131,8 @@ W16_SIDD = dict(width=16, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12,
 ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD, "B0V2": W16_SIDD,
                 "M-DEHAZE": W16_SIDD, "M-DEHAZE-KD": W16_SIDD,
-                "M-DERAIN": W16_SIDD, "M-DERAIN-KD": W16_SIDD}
+                "M-DERAIN": W16_SIDD, "M-DERAIN-KD": W16_SIDD,
+                "M-DEHAZE-KD-FREQ": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:
