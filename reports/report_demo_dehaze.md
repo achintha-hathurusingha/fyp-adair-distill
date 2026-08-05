@@ -212,7 +212,7 @@ end-of-cosine-schedule behaviour, not a divergence.
 All three models are evaluated on **byte-identical inputs**: one materialised
 `PairedTestDataset` replayed per model, so loading, cropping and ordering cannot
 differ between them. Metrics go through the locked harness
-(`src/eval/evaluate.py`, `ADAIR_DEFAULT`); `scripts/dehaze_gap.py` computes none
+(`src/eval/evaluate.py`, `ADAIR_DEFAULT`); `scripts/task_gap.py --task dehaze` computes none
 of its own.
 
 ```
@@ -264,7 +264,7 @@ python scripts/clamp_by_task.py <b0v2>/best.pth --batches 200
 ./scripts/run_b0_devon.sh --arm M-DEHAZE    --seed 0 --out-root runs/demo_dehaze    --num-workers 8
 ./scripts/run_b0_devon.sh --arm M-DEHAZE-KD --seed 0 --out-root runs/demo_dehaze_kd --num-workers 8
 
-python scripts/dehaze_gap.py \
+python scripts/task_gap.py --task dehaze \
   --student runs/demo_dehaze/M-DEHAZE/*/best.pth       --label "M GT-only" \
   --student runs/demo_dehaze_kd/M-DEHAZE-KD/*/best.pth --label "M GT+KD"
 ```
@@ -286,7 +286,7 @@ Recorded because two of them would have produced a confident wrong answer.
    changed nothing". Nothing would have errored.
 
    Caught because two instruments disagreed on the same checkpoint: the training
-   log said 18.75 dB and `dehaze_gap.py` said 30.63 dB. The tell was
+   log said 18.75 dB and `task_gap.py --task dehaze` said 30.63 dB. The tell was
    `psnr_dehaze: null` beside a non-null `psnr`.
 
    The B3 dead-config-key check could not catch this — it greps for key *names*,

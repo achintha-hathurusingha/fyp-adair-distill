@@ -1,6 +1,7 @@
-"""Measure the AdaIR-to-NAFNet dehazing gap on the held-out demo set.
+"""Measure the AdaIR-to-NAFNet gap on a task's held-out demo set.
 
-    python scripts/dehaze_gap.py --student <ckpt> [--student <ckpt2> ...]
+    python scripts/task_gap.py --task dehaze --student <ckpt> [--student <ckpt2> ...]
+    python scripts/task_gap.py --task derain              # teacher alone
 
 Every model sees **byte-identical inputs** — the same ``PairedTestDataset``
 instance feeds each one, so nothing about loading, cropping or ordering can
@@ -12,7 +13,7 @@ Multiple ``--student`` checkpoints are compared side by side, which is how the
 GT-only and GT+KD runs are put on the same table: same images, same harness,
 same teacher column, one row per model.
 
-Writes ``reports/dehaze_gap.json`` and a comparison strip
+Writes ``reports/<task>_gap.json`` and a comparison strip
 (hazy / teacher / student(s) / ground truth).
 """
 from __future__ import annotations
@@ -31,7 +32,13 @@ from src.models.teacher_wrapper import load_teacher
 from src.train.train import build_model
 from src.utils.config import REPO_ROOT, load_paths, load_yaml
 
-TEACHER = Path("/home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt")
+#: Per-task single-degradation teachers. Using the 3-degradation checkpoint
+#: instead would measure a different model -- the specialist is the right
+#: comparison for a single-task student.
+TEACHERS = {
+    "dehaze": "/home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt",
+    "derain": "/home/minura/FYP/Workspace/Himeth/weights/adair-single-derain.ckpt",
+}
 
 
 def _student(ckpt: Path, device: str):
@@ -53,7 +60,7 @@ def _strip(models: dict, samples: list, out: Path, n: int = 4) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    cols = ["hazy input"] + list(models) + ["ground truth"]
+    cols = ["degraded input"] + list(models) + ["ground truth"]
     fig, axes = plt.subplots(n, len(cols), figsize=(3.1 * len(cols), 3.1 * n))
     for r, (name, deg, clean) in enumerate(samples[:n]):
         imgs = [deg]
@@ -78,27 +85,30 @@ def _strip(models: dict, samples: list, out: Path, n: int = 4) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--student", type=Path, action="append", required=True,
-                    help="student checkpoint; repeat to compare several")
-    ap.add_argument("--label", action="append", default=None,
+    ap.add_argument("--task", default="dehaze", choices=sorted(TEACHERS))
+    ap.add_argument("--student", type=Path, action="append", default=[],
+                    help="student checkpoint; repeat to compare several. "
+                         "Omit to measure the teacher alone.")
+    ap.add_argument("--label", action="append", default=[],
                     help="display name per --student, in the same order")
-    ap.add_argument("--teacher", type=Path, default=TEACHER)
+    ap.add_argument("--teacher", type=Path, default=None)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--val-root", default="test/dehaze/demo")
-    ap.add_argument("--out", type=Path, default=REPO_ROOT / "reports" / "dehaze_gap.json")
+    ap.add_argument("--val-root", default=None)
+    ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--per-image", action="store_true",
                     help="keep and report per-image metrics, and flag outliers")
-    ap.add_argument("--strip", type=Path,
-                    default=REPO_ROOT / "reports" / "dehaze_gap_strip.png")
+    ap.add_argument("--strip", type=Path, default=None)
     args = ap.parse_args()
 
     data_root = Path(load_paths()["data_root"])
     if not data_root.is_absolute():
         data_root = REPO_ROOT / data_root
-    root = data_root / args.val_root
+    args.teacher = args.teacher or Path(TEACHERS[args.task])
+    root = data_root / (args.val_root or f"test/{args.task}/demo")
+    args.out = args.out or REPO_ROOT / "reports" / f"{args.task}_gap.json"
+    args.strip = args.strip or REPO_ROOT / "reports" / f"{args.task}_gap_strip.png"
 
-    labels = args.label or [f"student{i}" if i else "student"
-                            for i in range(len(args.student))]
+    labels = args.label or [f"student{i}" for i in range(len(args.student))]
     if len(labels) != len(args.student):
         raise SystemExit(f"{len(labels)} labels for {len(args.student)} students")
 
@@ -109,7 +119,7 @@ def main() -> int:
         models[lbl] = _student(ck, args.device)
 
     # Identical inputs: one dataset, materialised once, replayed per model.
-    samples = list(build_dataset("dehaze", root))
+    samples = list(build_dataset(args.task, root))
     print(f"held-out set : {len(samples)} pairs from {root}")
     print(f"teacher      : {args.teacher.name}\n")
 
