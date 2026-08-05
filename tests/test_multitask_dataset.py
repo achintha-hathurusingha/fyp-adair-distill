@@ -588,7 +588,8 @@ def test_baseline_configs_have_no_teacher() -> None:
 
     from src.utils.config import REPO_ROOT
 
-    for name in ("b0_baseline", "b0v2_multitask", "m_dehaze_baseline"):
+    for name in ("b0_baseline", "b0v2_multitask", "m_dehaze_baseline",
+                 "m_derain_baseline"):
         p = REPO_ROOT / "configs" / "train" / f"{name}.yaml"
         cfg = yaml.safe_load(p.read_text(encoding="utf-8"))
         assert not cfg.get("distill"), f"{name}.yaml has a distill block"
@@ -600,17 +601,19 @@ def test_kd_config_differs_from_its_baseline_only_by_distill() -> None:
 
     from src.utils.config import REPO_ROOT
 
-    base = yaml.safe_load(
-        (REPO_ROOT / "configs/train/m_dehaze_baseline.yaml").read_text(encoding="utf-8"))
-    kd = yaml.safe_load(
-        (REPO_ROOT / "configs/train/m_dehaze_kd.yaml").read_text(encoding="utf-8"))
-    assert kd.get("distill"), "KD config has no distill block"
-    for section in ("arch", "data", "optim", "schedule", "train", "loss", "eval"):
-        assert base[section] == kd[section], (
-            f"section {section!r} differs between the baseline and KD configs; "
-            "the measured delta would not be attributable to distillation")
-    only = set(kd) - set(base)
-    assert only == {"distill"}, f"KD config adds more than distill: {only}"
+    for task in ("dehaze", "derain"):
+        base = yaml.safe_load((REPO_ROOT / f"configs/train/m_{task}_baseline.yaml")
+                              .read_text(encoding="utf-8"))
+        kd = yaml.safe_load((REPO_ROOT / f"configs/train/m_{task}_kd.yaml")
+                            .read_text(encoding="utf-8"))
+        assert kd.get("distill"), f"{task} KD config has no distill block"
+        for section in ("arch", "data", "optim", "schedule", "train", "loss", "eval"):
+            assert base[section] == kd[section], (
+                f"{task}: section {section!r} differs between the baseline and KD "
+                "configs; the measured delta would not be attributable to "
+                "distillation")
+        only = set(kd) - set(base)
+        assert only == {"distill"}, f"{task} KD config adds more than distill: {only}"
 
 
 def test_teacher_without_weight_is_rejected(tmp_path) -> None:
@@ -648,6 +651,8 @@ def test_every_yaml_section_reaches_the_resolved_config() -> None:
 
     for arm, name in (("M-DEHAZE", "m_dehaze_baseline"),
                       ("M-DEHAZE-KD", "m_dehaze_kd"),
+                      ("M-DERAIN", "m_derain_baseline"),
+                      ("M-DERAIN-KD", "m_derain_kd"),
                       ("B0V2", "b0v2_multitask")):
         yml = yaml.safe_load(
             (REPO_ROOT / "configs" / "train" / f"{name}.yaml").read_text(encoding="utf-8"))

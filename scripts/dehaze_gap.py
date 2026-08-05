@@ -86,6 +86,8 @@ def main() -> int:
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--val-root", default="test/dehaze/demo")
     ap.add_argument("--out", type=Path, default=REPO_ROOT / "reports" / "dehaze_gap.json")
+    ap.add_argument("--per-image", action="store_true",
+                    help="keep and report per-image metrics, and flag outliers")
     ap.add_argument("--strip", type=Path,
                     default=REPO_ROOT / "reports" / "dehaze_gap_strip.png")
     args = ap.parse_args()
@@ -114,8 +116,10 @@ def main() -> int:
     results = {}
     for name, model in models.items():
         res = evaluate(model, iter(samples), name=name, config=ADAIR_DEFAULT,
-                       device=args.device, keep_per_image=False)
+                       device=args.device, keep_per_image=args.per_image)
         results[name] = {"psnr": res.psnr, "ssim": res.ssim, "images": res.n_images}
+        if args.per_image:
+            results[name]["per_image"] = res.per_image
         print(f"{name:<22} psnr {res.psnr:7.4f}  ssim {res.ssim:.4f}  "
               f"n={res.n_images}")
 
@@ -126,6 +130,20 @@ def main() -> int:
             continue
         print(f"gap  teacher - {name:<18} {t['psnr'] - r['psnr']:+7.4f} dB  "
               f"{t['ssim'] - r['ssim']:+.4f} ssim")
+
+    if args.per_image:
+        # An image far from the set mean is either a genuinely easy/hard sample
+        # or a failure mode hiding inside an average. Naming the extremes is
+        # what tells the two apart.
+        for name, r in results.items():
+            rows = sorted(r["per_image"], key=lambda d: d["psnr"])
+            mean = r["psnr"]
+            sd = (sum((d["psnr"] - mean) ** 2 for d in rows) / len(rows)) ** 0.5
+            print(f"\n{name}: per-image psnr sd {sd:.3f} dB")
+            print(f"  worst  {rows[0]['name']:<22} {rows[0]['psnr']:7.3f} "
+                  f"({(rows[0]['psnr'] - mean) / sd:+.1f} sd)")
+            print(f"  best   {rows[-1]['name']:<22} {rows[-1]['psnr']:7.3f} "
+                  f"({(rows[-1]['psnr'] - mean) / sd:+.1f} sd)")
 
     _strip(models, samples, args.strip)
     args.out.write_text(json.dumps(

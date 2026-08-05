@@ -1,0 +1,84 @@
+# M-DERAIN — single-task deraining for the teacher-gap demo.
+#
+# The dehaze demo's methodology applied unchanged to the second task, so the two
+# results are directly comparable. Expectations are modest: the original
+# specialist comparison measured only a +0.25 dB teacher advantage on derain
+# against +1.6 dB on dehaze, so there is much less gap available to close.
+#
+# SCOPE: derain only, ONE seed, Rain100L's 160 training pairs after reserving 40
+# for held-out evaluation, 60k iterations. Not a Phase 02 result.
+#
+# SMALL-DATA CAVEAT, stated because it changes how the numbers should be read:
+# 160 training images at batch 16 over 60k iterations means each image is seen
+# ~6,000 times. AdaIR's own protocol repeats derain x120 for the same reason,
+# but heavy repetition on 160 images makes overfitting the thing to watch, and
+# the held-out set is only 40 images.
+
+experiment: m_derain_baseline
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]      # unused on this task; kept so the arch/config
+                            # comparison against B0-v2 stays key-for-key
+  mixed_task: true          # one task in the mix — the multi-task loader with a
+                            # single source, NOT a separate code path
+  tasks:
+    # Rain100L is strict 1:1 (verified at split time), so a filename split has
+    # no leakage path -- unlike dehaze, where ~35 hazy variants share a clear
+    # source and the split must group by stem.
+    derain:
+      input:  Train/Derain/input
+      target: Train/Derain/target
+      list:   reports/derain_train_list.txt
+  num_workers: 8
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  # 60k, not the 300k of B0-v2: a single task on 4,000 images, and the demo has
+  # a deadline. Convergence is judged from the validation curve flattening and
+  # REPORTED, not asserted by having picked a number in advance.
+  total_iters: 60000
+  warmup_iters: 2000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 2000           # denser than B0's 5000: the curve IS the
+                            # convergence evidence, so it needs resolution
+  ckpt_every: 2000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+eval:
+  harness: src/eval/evaluate.py
+  # Validating a deraining model on BSD68 would measure nothing it trains for.
+  val_task: derain
+  val_root: test/derain/demo
+  test_sets: [derain_demo_heldout]
