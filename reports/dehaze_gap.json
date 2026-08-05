@@ -1,0 +1,26 @@
+{
+ "val_root": "/home/minura/fyp-adair-distill/data/test/dehaze/demo",
+ "n_images": 150,
+ "teacher_ckpt": "/home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt",
+ "results": {
+  "AdaIR (teacher)": {
+   "psnr": 34.505623084625476,
+   "ssim": 0.9877649593533526,
+   "images": 150
+  },
+  "M GT-only": {
+   "psnr": 32.88976254877118,
+   "ssim": 0.9820638967825609,
+   "images": 150
+  },
+  "M GT+KD": {
+   "psnr": 33.075853315402725,
+   "ssim": 0.982835242515392,
+   "images": 150
+  }
+ },
+ "students": {
+  "M GT-only": "runs/demo_dehaze/M-DEHAZE/M-DEHAZE_seed0_20260805_000102/best.pth",
+  "M GT+KD": "runs/demo_dehaze_kd/M-DEHAZE-KD/M-DEHAZE-KD_seed0_20260805_002104/best.pth"
+ }
+}
