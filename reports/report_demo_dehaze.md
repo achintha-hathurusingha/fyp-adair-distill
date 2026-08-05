@@ -254,6 +254,71 @@ building Phase 02's grid.
 
 ---
 
+## Addendum — the same models on data none of them has seen
+
+The result above is measured on held-out RESIDE-OTS, which is the *same
+distribution* the students trained on. Re-measuring on SOTS-outdoor, the
+published RESIDE test split, changes the conclusion's size substantially.
+
+### SOTS-outdoor is not automatically clean, and that had to be checked
+
+75 of SOTS-outdoor's 492 clear scenes also appear among OTS's 2,061 clear
+sources — **the same images, not merely the same numbering**, confirmed at
+64x64 grayscale normalised cross-correlation, all 75 scoring 1.0000. B0-v2
+trained on the entire OTS synthetic directory and the demo students drew from
+OTS stems, so all three had seen those 75 scenes.
+
+`scripts/make_sots_clean.py` excludes them, leaving **417 scenes / 424 hazy
+images** that none of the models has seen. Published SOTS figures use all 500,
+so the numbers below are **not comparable to the dehazing literature** — only to
+each other.
+
+### Results on the 424 unseen images
+
+| model | PSNR | SSIM | gap to teacher |
+|---|---|---|---|
+| AdaIR (teacher) | 31.3304 | 0.9801 | — |
+| M specialist, GT only | 28.2913 | 0.9662 | +3.0391 dB |
+| M specialist, GT + KD | **29.3828** | 0.9715 | **+1.9476 dB** |
+| B0-v2 all-in-one | 29.5127 | 0.9721 | +1.8177 dB |
+
+**Distillation delta: +1.0915 dB — 36% of the gap, against 11.5% in domain.**
+
+| | in-domain (150 OTS) | unseen (424 SOTS) |
+|---|---|---|
+| teacher | 34.5056 | 31.3304 |
+| gap, GT only | +1.6159 | +3.0391 |
+| KD delta | +0.1861 | **+1.0915** |
+| gap closed | 11.5% | **36.0%** |
+
+The in-domain measurement **understated distillation by 5.9x**. That is the
+interesting result, and it has a plausible mechanism: on the distribution both
+models were fitted to, the GT-only student can match KD by fitting the data
+directly; off that distribution, what the teacher supplies is a more general
+prior, and only the distilled student carries it. Every model also scores ~3 dB
+lower here, so SOTS is simply harder — but the *gap* widens rather than shifting
+uniformly, which a difficulty change alone would not produce.
+
+**A demo evaluated only in-domain would have reported the smaller number and
+concluded distillation was marginal.**
+
+### The capacity question — answered, with a caveat
+
+B0-v2, the 3-degradation all-in-one, scores **29.5127** against the single-task
+specialist's 28.2913. **The all-in-one is not capacity-starved on dehazing** —
+it beats a specialist of identical architecture despite dividing its capacity
+across three degradations. There is no case here for moving to the L arm.
+
+The caveat: this does not *isolate* capacity. B0-v2 trained on all 72,135 OTS
+images for 300k iterations; the specialist saw 4,000 for 60k. The comparison is
+confounded by data volume and schedule, and the honest reading is "no evidence
+of capacity starvation", not "multi-task training helps". Notably the distilled
+specialist (29.3828) nearly matches B0-v2 while seeing 0.06x the data, which
+suggests distillation substitutes for data volume to a degree worth investigating
+in Phase 02.
+
+---
+
 ## Reproduction
 
 ```bash
