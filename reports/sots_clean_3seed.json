@@ -1,0 +1,50 @@
+{
+ "val_root": "/home/minura/fyp-adair-distill/data/test/dehaze/sots_clean",
+ "n_images": 424,
+ "teacher_ckpt": "/home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt",
+ "results": {
+  "AdaIR (teacher)": {
+   "psnr": 31.33039634259568,
+   "ssim": 0.9801469873673688,
+   "images": 424
+  },
+  "GT-s0": {
+   "psnr": 28.29127760340244,
+   "ssim": 0.9661610588998947,
+   "images": 424
+  },
+  "KD-s0": {
+   "psnr": 29.382791105666975,
+   "ssim": 0.971502822492428,
+   "images": 424
+  },
+  "GT-s1": {
+   "psnr": 28.378782261628427,
+   "ssim": 0.9680221433200114,
+   "images": 424
+  },
+  "KD-s1": {
+   "psnr": 29.763077610905878,
+   "ssim": 0.9729575214475757,
+   "images": 424
+  },
+  "GT-s2": {
+   "psnr": 28.384865512832587,
+   "ssim": 0.9672751066104945,
+   "images": 424
+  },
+  "KD-s2": {
+   "psnr": 30.0897020525465,
+   "ssim": 0.9730530420777816,
+   "images": 424
+  }
+ },
+ "students": {
+  "GT-s0": "runs/demo_dehaze/M-DEHAZE/M-DEHAZE_seed0_20260805_000102/best.pth",
+  "KD-s0": "runs/demo_dehaze_kd/M-DEHAZE-KD/M-DEHAZE-KD_seed0_20260805_002104/best.pth",
+  "GT-s1": "runs/demo_dehaze/M-DEHAZE/M-DEHAZE_seed1_20260805_095704/best.pth",
+  "KD-s1": "runs/demo_dehaze_kd/M-DEHAZE-KD/M-DEHAZE-KD_seed1_20260805_095707/best.pth",
+  "GT-s2": "runs/demo_dehaze/M-DEHAZE/M-DEHAZE_seed2_20260805_110712/best.pth",
+  "KD-s2": "runs/demo_dehaze_kd/M-DEHAZE-KD/M-DEHAZE-KD_seed2_20260805_111813/best.pth"
+ }
+}

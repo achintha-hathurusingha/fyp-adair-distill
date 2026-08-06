@@ -1,0 +1,31 @@
+[
+ {
+  "check": "BSD68 vs Train/Denoise",
+  "n_benchmark": 68,
+  "n_training": 5144,
+  "exact": [],
+  "near": [],
+  "pass": true
+ },
+ {
+  "check": "dehaze demo split (stem-disjoint)",
+  "n_benchmark": 150,
+  "n_training": 4000,
+  "shared_stems": [],
+  "pass": true
+ },
+ {
+  "check": "clean SOTS vs full OTS",
+  "n_benchmark": 417,
+  "n_training": 2061,
+  "shared_stems": [],
+  "pass": true
+ },
+ {
+  "check": "clean SOTS vs dehaze demo subset",
+  "n_benchmark": 417,
+  "n_training": 1673,
+  "shared_stems": [],
+  "pass": true
+ }
+]
