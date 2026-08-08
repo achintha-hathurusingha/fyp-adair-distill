@@ -44,4 +44,42 @@ def load_paths() -> dict[str, Any]:
     cfg["runs_root"] = os.environ.get("RUNS_ROOT", cfg.get("runs_root", "./runs"))
     if os.environ.get("ADAIR_CKPT"):
         cfg["adair_checkpoint"] = os.environ["ADAIR_CKPT"]
+    if os.environ.get("ADAIR_WEIGHTS"):
+        cfg["adair_weights_root"] = os.environ["ADAIR_WEIGHTS"]
     return cfg
+
+
+def teacher_checkpoint(task: str) -> Path:
+    """Absolute path to the released AdaIR single-degradation teacher for ``task``.
+
+    Resolves ``adair_weights_root`` (machine-specific, set in
+    ``configs/paths.local.yaml`` or ``$ADAIR_WEIGHTS``) against the portable
+    filenames in ``teachers``. Exists so no tracked file carries one machine's
+    absolute path — the rule stated at the top of ``configs/paths.yaml``, which
+    eight files had quietly broken.
+
+    Raises:
+        ValueError: for an unknown task.
+        FileNotFoundError: if the root is unset or the checkpoint is missing,
+            with the instruction needed to fix it. A silent fallback here would
+            surface as a mysterious load failure much later.
+    """
+    cfg = load_paths()
+    names = cfg.get("teachers") or {}
+    if task not in names:
+        raise ValueError(
+            f"no teacher configured for task {task!r}; "
+            f"paths.yaml lists {sorted(names) or 'none'}")
+    root = cfg.get("adair_weights_root")
+    if not root:
+        raise FileNotFoundError(
+            "adair_weights_root is not set. Point it at the directory holding "
+            "the released AdaIR checkpoints, either in "
+            "configs/paths.local.yaml (gitignored) or via the ADAIR_WEIGHTS "
+            "environment variable.")
+    path = Path(root).expanduser() / names[task]
+    if not path.exists():
+        raise FileNotFoundError(
+            f"teacher checkpoint for {task!r} not found at {path}. Check "
+            "adair_weights_root and the `teachers` filenames in paths.yaml.")
+    return path

@@ -676,7 +676,7 @@ def test_kd_arm_actually_configures_a_teacher() -> None:
     from src.train import train as train_mod
 
     cfg = train_mod.build_config("M-DEHAZE-KD", 1000, 8, 1e-3)
-    assert cfg.get("distill", {}).get("teacher"), (
+    assert cfg.get("distill", {}).get("teacher_task"), (
         "M-DEHAZE-KD resolves with no teacher — it would train GT-only and the "
         "distillation delta would be measured against itself")
     assert cfg["distill"]["weight"] > 0

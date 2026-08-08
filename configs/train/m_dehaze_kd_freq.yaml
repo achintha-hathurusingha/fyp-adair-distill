@@ -87,7 +87,11 @@ loss:
 
 # THE ONLY DIFFERENCE FROM THE BASELINE.
 distill:
-  teacher: /home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt
+  # Task name, NOT a path. Resolved at run time through
+  # src.utils.config.teacher_checkpoint(), which combines the
+  # machine-specific adair_weights_root from paths.yaml with the
+  # released filename. An absolute path here would be one machine's.
+  teacher_task: dehaze
   # Equal weighting of the two terms. Not tuned — a sweep over this would be a
   # second experiment, and the demo asks whether distillation helps at all, not
   # what its best setting is. Stated so the number is not mistaken for one that

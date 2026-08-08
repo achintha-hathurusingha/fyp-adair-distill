@@ -22,9 +22,8 @@ import torch
 from src.data.datasets import load_rgb_uint8, to_tensor
 from src.models.teacher_wrapper import load_teacher
 from src.train.train import build_model
-from src.utils.config import REPO_ROOT, load_yaml
+from src.utils.config import REPO_ROOT, load_yaml, teacher_checkpoint
 
-TEACHER = Path("/home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt")
 
 
 def _student(ckpt: Path, device: str):
@@ -45,7 +44,8 @@ def main() -> int:
     ap.add_argument("images", nargs="+", type=Path)
     ap.add_argument("--student", type=Path, action="append", required=True)
     ap.add_argument("--label", action="append", required=True)
-    ap.add_argument("--teacher", type=Path, default=TEACHER)
+    ap.add_argument("--teacher", type=Path, default=None,
+                    help="teacher checkpoint; default resolves from paths.yaml")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out", type=Path,
                     default=REPO_ROOT / "reports" / "dehaze_real_strip.png")
@@ -55,8 +55,8 @@ def main() -> int:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    models = {"AdaIR (teacher)\n28.8M params": load_teacher(args.teacher,
-                                                            device=args.device)}
+    models = {"AdaIR (teacher)\n28.8M params": load_teacher(
+        args.teacher or teacher_checkpoint("dehaze"), device=args.device)}
     for lbl, ck in zip(args.label, args.student):
         models[lbl] = _student(ck, args.device)
 

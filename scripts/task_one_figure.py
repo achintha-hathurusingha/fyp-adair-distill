@@ -30,12 +30,9 @@ from src.data.datasets import build_dataset
 from src.eval.metrics import ADAIR_DEFAULT, psnr, ssim
 from src.models.teacher_wrapper import load_teacher
 from src.train.train import build_model
-from src.utils.config import REPO_ROOT, load_paths, load_yaml
+from src.utils.config import (REPO_ROOT, load_paths, load_yaml,
+                              teacher_checkpoint)
 
-W = "/home/minura/FYP/Workspace/Himeth/weights"
-TEACHERS = {"derain":  f"{W}/adair-single-derain.ckpt",
-            "dehaze":  f"{W}/adair-single-dehaze.ckpt",
-            "denoise": f"{W}/adair-single-denoise.ckpt"}
 VAL_ROOT = {"derain":  "test/derain/demo",
             "dehaze":  "test/dehaze/demo",
             "denoise": "test/denoise/bsd68"}
@@ -65,7 +62,7 @@ def panels_for(task: str, student_ckpt: Path, sigma: int, image: str | None,
                device: str, data_root: Path):
     """(title, panels) for one task row. Panels are (label, image, psnr, ssim)."""
     samples = _samples(task, sigma, data_root)
-    teacher = load_teacher(TEACHERS[task], device=device)
+    teacher = load_teacher(teacher_checkpoint(task), device=device)
     student = _student(student_ckpt, device)
 
     def run(m, d):

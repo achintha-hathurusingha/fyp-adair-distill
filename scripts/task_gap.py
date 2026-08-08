@@ -30,15 +30,15 @@ from src.eval.evaluate import evaluate
 from src.eval.metrics import ADAIR_DEFAULT
 from src.models.teacher_wrapper import load_teacher
 from src.train.train import build_model
-from src.utils.config import REPO_ROOT, load_paths, load_yaml
+from src.utils.config import (REPO_ROOT, load_paths, load_yaml,
+                              teacher_checkpoint)
 
-#: Per-task single-degradation teachers. Using the 3-degradation checkpoint
-#: instead would measure a different model -- the specialist is the right
-#: comparison for a single-task student.
-TEACHERS = {
-    "dehaze": "/home/minura/FYP/Workspace/Himeth/weights/adair-single-dehaze.ckpt",
-    "derain": "/home/minura/FYP/Workspace/Himeth/weights/adair-single-derain.ckpt",
-}
+#: Tasks with a released single-degradation teacher. The checkpoint PATH is
+#: resolved at run time via `teacher_checkpoint`, which reads the machine-specific
+#: root from paths.yaml -- no absolute path belongs in tracked code.
+#: Using the 3-degradation checkpoint instead would measure a different model;
+#: the specialist is the right comparison for a single-task student.
+TEACHERS = ("dehaze", "derain")
 
 
 def _student(ckpt: Path, device: str):
@@ -103,7 +103,7 @@ def main() -> int:
     data_root = Path(load_paths()["data_root"])
     if not data_root.is_absolute():
         data_root = REPO_ROOT / data_root
-    args.teacher = args.teacher or Path(TEACHERS[args.task])
+    args.teacher = args.teacher or teacher_checkpoint(args.task)
     root = data_root / (args.val_root or f"test/{args.task}/demo")
     args.out = args.out or REPO_ROOT / "reports" / f"{args.task}_gap.json"
     args.strip = args.strip or REPO_ROOT / "reports" / f"{args.task}_gap_strip.png"

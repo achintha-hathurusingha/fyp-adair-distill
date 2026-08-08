@@ -33,9 +33,8 @@ from src.data.datasets import build_dataset
 from src.eval.metrics import ADAIR_DEFAULT, psnr
 from src.models.teacher_wrapper import load_teacher
 from src.train.train import build_model
-from src.utils.config import REPO_ROOT, load_paths
+from src.utils.config import REPO_ROOT, load_paths, teacher_checkpoint
 
-TEACHER = "/home/minura/FYP/Workspace/Himeth/weights/adair-single-derain.ckpt"
 AMP = 6           # error-map amplification; stated on the figure
 CROP = 128
 
@@ -58,7 +57,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--student", type=Path, action="append", required=True)
     ap.add_argument("--label", action="append", required=True)
-    ap.add_argument("--teacher", default=TEACHER)
+    ap.add_argument("--teacher", default=None,
+                    help="teacher checkpoint; default resolves from paths.yaml")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out", type=Path,
                     default=REPO_ROOT / "reports" / "derain_visual.png")
@@ -73,7 +73,8 @@ def main() -> int:
         data_root = REPO_ROOT / data_root
     samples = list(build_dataset("derain", data_root / "test" / "derain" / "demo"))
 
-    models = {"AdaIR (teacher)": load_teacher(args.teacher, device=args.device)}
+    models = {"AdaIR (teacher)": load_teacher(
+        args.teacher or teacher_checkpoint("derain"), device=args.device)}
     for lbl, ck in zip(args.label, args.student):
         models[lbl] = _student(ck, args.device)
 

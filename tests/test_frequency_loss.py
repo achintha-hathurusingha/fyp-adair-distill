@@ -186,5 +186,29 @@ def test_frequency_term_without_a_teacher_is_rejected(tmp_path) -> None:
            "train": {"accum_steps": 1, "amp": False},
            "loss": {"name": "charbonnier"},
            "distill": {"freq_weight": 0.2}}
-    with pytest.raises(ValueError, match="without distill.teacher"):
+    with pytest.raises(ValueError, match="without a teacher"):
         Trainer(model, batches, cfg, tmp_path, device="cpu")
+
+
+def test_no_tracked_file_carries_a_machine_absolute_path() -> None:
+    """configs/paths.yaml opens with 'NO absolute paths in tracked code'.
+
+    Eight files had quietly broken it, pointing at one machine's home directory
+    for the teacher checkpoints. That is invisible until a teammate clones the
+    repo and nothing runs. This asserts the rule instead of restating it.
+    """
+    import subprocess
+
+    from src.utils.config import REPO_ROOT
+
+    out = subprocess.run(
+        ["git", "grep", "-nI", "-E", r"/home/[a-z]+/|C:\\Users\\\\",
+         "--", "src", "scripts", "configs"],
+        cwd=REPO_ROOT, capture_output=True, text=True).stdout
+    # Docstrings and comments may legitimately show an example path; only
+    # assignments and YAML values are the problem.
+    offenders = [l for l in out.splitlines()
+                 if l.strip() and not any(
+                     m in l for m in ("#", '"""', "e.g.", "example"))]
+    assert not offenders, ("absolute machine paths in tracked code:\n  "
+                           + "\n  ".join(offenders[:10]))

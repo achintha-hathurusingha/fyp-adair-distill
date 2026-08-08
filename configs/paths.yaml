@@ -25,3 +25,17 @@ datasets:
 # Released teacher checkpoint (AdaIR 3-degradation). Overridden by env var
 # ADAIR_CKPT. Left null until downloaded — teacher_wrapper raises if unset.
 adair_checkpoint: null
+
+# Root holding the released AdaIR SINGLE-DEGRADATION checkpoints. Null here
+# because it is machine-specific: set it in configs/paths.local.yaml (gitignored)
+# or via the ADAIR_WEIGHTS env var. Anything needing a teacher resolves through
+# `src.utils.config.teacher_checkpoint(task)` and raises with instructions if it
+# is unset, rather than carrying one machine's absolute path in tracked code.
+adair_weights_root: null
+
+# Filenames under adair_weights_root, one per task. These ARE portable — they
+# are the names the AdaIR authors released, not a property of any machine.
+teachers:
+  denoise: adair-single-denoise.ckpt
+  derain:  adair-single-derain.ckpt
+  dehaze:  adair-single-dehaze.ckpt

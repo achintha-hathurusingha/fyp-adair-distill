@@ -151,19 +151,28 @@ class Trainer:
         self.freq_weight = float(dcfg.get("freq_weight", 0.0))
         self.freq_mode = dcfg.get("freq_mode", "magnitude")
         self._freq_last = 0.0
-        if self.freq_weight > 0 and not dcfg.get("teacher"):
+        # `teacher_task` (portable) or `teacher` (explicit path, for a one-off).
+        # The task form is preferred: an absolute path in a tracked config is
+        # one machine's, which is the rule configs/paths.yaml opens with.
+        teacher_path = None
+        if dcfg.get("teacher_task"):
+            from src.utils.config import teacher_checkpoint
+            teacher_path = teacher_checkpoint(dcfg["teacher_task"])
+        elif dcfg.get("teacher"):
+            teacher_path = Path(dcfg["teacher"])
+        if self.freq_weight > 0 and teacher_path is None:
             raise ValueError(
-                "distill.freq_weight is set without distill.teacher; the "
+                "distill.freq_weight is set without a teacher; the "
                 "frequency term compares against the TEACHER's spectrum and "
                 "has nothing to compare to without one.")
-        if dcfg.get("teacher"):
+        if teacher_path is not None:
             if self.kd_weight <= 0:
                 raise ValueError(
-                    "distill.teacher is set but distill.weight is not positive; "
-                    "that would load a teacher and ignore it.")
+                    "a distillation teacher is configured but distill.weight is "
+                    "not positive; that would load a teacher and ignore it.")
             from src.models.teacher_wrapper import load_teacher
-            self.teacher = load_teacher(dcfg["teacher"], device=device)
-            self.log.info(f"teacher: {Path(dcfg['teacher']).name} "
+            self.teacher = load_teacher(teacher_path, device=device)
+            self.log.info(f"teacher: {teacher_path.name} "
                           f"(frozen, eval) | kd weight {self.kd_weight}")
 
         opt_cfg = cfg.get("optim", {})
