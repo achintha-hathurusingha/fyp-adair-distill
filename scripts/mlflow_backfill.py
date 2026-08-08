@@ -4,6 +4,11 @@
     python scripts/mlflow_backfill.py --tracking-uri http://<mlflow-host>:5000
     python scripts/mlflow_backfill.py --tracking-uri file:./mlruns    # local test
 
+**Verified end to end** against devon's 16 real experiments into a
+SQLite-backed store: full curves, params, artifacts and tags all land.
+Note MLflow 3.15 has deprecated the plain file store, so the backend must
+be SQLite or Postgres even for a local test.
+
 **Reads what the project already writes.** Every run directory carries a
 resolved ``config.yaml``, ``git_commit.txt``, ``metrics.json``, ``history.json``
 and ``train.log``. That is already an experiment record; it is simply not
@@ -56,7 +61,11 @@ PARAM_KEYS = [
     ("train", "accum_steps"), ("train", "ema_decay"),
     ("train", "track_clamp_engagement"),
     ("loss", "name"),
-    ("distill", "teacher_task"), ("distill", "weight"),
+    # Both spellings: runs before the paths fix carry `teacher` (an
+    # absolute path), runs after carry `teacher_task`. Logging only the
+    # new one would make older KD runs unfilterable by teacher.
+    ("distill", "teacher_task"), ("distill", "teacher"),
+    ("distill", "weight"),
     ("distill", "freq_weight"), ("distill", "freq_mode"),
     ("eval", "val_task"),
 ]
