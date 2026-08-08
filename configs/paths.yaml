@@ -11,16 +11,26 @@ data_root: ./data
 # Root under which all run directories are written. Overridden by env var RUNS_ROOT.
 runs_root: ./runs
 
-# Per-dataset subdirectories under data_root (3-degradation protocol).
+# Per-dataset subdirectories under data_root, for the checksum registry
+# (scripts/dataset_checksums.py) and anything else that wants a name -> path
+# lookup rather than a hardcoded relative path.
+#
+# CORRECTED 2026-08-09 (F11-class bug): the previous block named raw per-source
+# directories -- denoise/BSD400, denoise/WED, derain/Rain100L, dehaze/RESIDE/ITS,
+# dehaze/RESIDE/OTS -- that do not exist anywhere on devon and never have.
+# Nothing in src/ or scripts/ reads `datasets` (confirmed by grep before this
+# fix), so the drift was invisible until dataset_checksums.py tried to walk it
+# and reported 7 of 8 entries SKIP..does not exist. The real layout, verified
+# against devon's actual directory tree rather than assumed:
 datasets:
-  bsd400:      denoise/BSD400
-  wed:         denoise/WED
-  bsd68:       denoise/BSD68
-  urban100:    denoise/Urban100
-  rain100l:    derain/Rain100L
-  reside_its:  dehaze/RESIDE/ITS
-  reside_ots:  dehaze/RESIDE/OTS
-  sots_outdoor: dehaze/RESIDE/SOTS/outdoor
+  denoise_train:  Train/Denoise                # 5,144 images (BSD400+WED, merged)
+  derain_train:   Train/Derain                 # input/ + target/, 200 pairs
+  dehaze_train:   Train/Dehaze                 # synthetic/ + clear/, RESIDE-OTS
+  bsd68:          test/denoise/bsd68           # 68 images, denoise benchmark
+  derain_demo:    test/derain/demo             # 40 held-out pairs
+  dehaze_demo:    test/dehaze/demo             # 150 held-out pairs
+  dehaze_sots_clean: test/dehaze/sots_clean    # 417 images, verified disjoint from OTS
+  sots_outdoor:   dehaze/RESIDE/SOTS/outdoor   # 992 images, raw SOTS extraction
 
 # Released teacher checkpoint (AdaIR 3-degradation). Overridden by env var
 # ADAIR_CKPT. Left null until downloaded — teacher_wrapper raises if unset.
