@@ -148,3 +148,18 @@ def test_smoke_flag_shrinks_only_the_run_length(monkeypatch, tmp_path) -> None:
     assert c["optim"]["grad_clip"] == 1.0
     assert c["model"]["full_res_norm_type"] == "affine_clamp"
     assert c["model"]["clamp_bound"] == 8.0
+
+
+def test_every_arm_with_a_yaml_resolves_without_drift() -> None:
+    """Every arm naming a `config:` YAML must actually build.
+
+    Caught in production, not by a test: M-DEHAZE-KD-W05/W20 were added to
+    ARMS but not to ARM_GEOMETRY, so they silently defaulted to W16_B8 and
+    build_config's own architecture-drift guard raised at launch -- on devon,
+    minutes before a job needed to start. This calls build_config for every
+    such arm directly, so the same mistake fails a fast local test instead.
+    """
+    for arm, spec in ARMS.items():
+        if "config" not in spec:
+            continue                      # ablation arms with no reviewed YAML
+        build_config(arm, iters=7, batch_size=8, lr=1e-3)  # raises on drift

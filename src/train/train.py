@@ -147,7 +147,8 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD, "B0V2": W16_SIDD,
                 "M-DEHAZE": W16_SIDD, "M-DEHAZE-KD": W16_SIDD,
                 "M-DERAIN": W16_SIDD, "M-DERAIN-KD": W16_SIDD,
-                "M-DEHAZE-KD-FREQ": W16_SIDD}
+                "M-DEHAZE-KD-FREQ": W16_SIDD,
+                "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:
