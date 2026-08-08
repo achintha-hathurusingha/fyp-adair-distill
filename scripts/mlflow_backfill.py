@@ -181,11 +181,26 @@ def import_run(run_dir: Path, roots: list[Path], dry: bool) -> str:
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 mlflow.log_metric(f"final_{k}" if k in final else k, float(v))
 
+        # Best-effort, same principle as src.utils.tracking.RunTracker: a
+        # missing/broken artifact store (e.g. MinIO credentials not configured
+        # client-side) must not lose the params/tags/metrics already logged
+        # above for THIS run, and must not abort every run still queued behind
+        # it. Observed in practice: log_artifact raised NoCredentialsError on
+        # devon before MinIO's access key was wired in, which would otherwise
+        # have crashed the whole backfill on the very first run.
+        artifact_failed = False
         for fname in ("config.yaml", "metrics.json", "history.json",
                       "env.txt", "git_commit.txt", "resumes.jsonl", "train.log"):
             f = run_dir / fname
-            if f.exists() and f.stat().st_size < 20 * 2 ** 20:
+            if not (f.exists() and f.stat().st_size < 20 * 2 ** 20):
+                continue
+            try:
                 mlflow.log_artifact(str(f))
+            except Exception as exc:                          # noqa: BLE001
+                if not artifact_failed:
+                    print(f"    [warn] artifact upload failed for {run_dir.name} "
+                          f"({type(exc).__name__}: {exc}); params/metrics kept")
+                artifact_failed = True
 
     return (f"  ok    {exp:<16} {name:<44} "
             f"{len(history):>3} points  best={metrics.get('best_psnr')}")

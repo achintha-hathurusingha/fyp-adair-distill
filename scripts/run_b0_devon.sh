@@ -13,4 +13,13 @@ set -euo pipefail
 source ~/miniforge3/etc/profile.d/conda.sh
 conda activate adair-distill
 cd ~/fyp-adair-distill
+
+# Optional MLflow/MinIO credentials, sourced from OUTSIDE the repo and never
+# committed. src.utils.tracking.RunTracker is best-effort either way -- a run
+# launched without this file trains identically, just with tracking disabled.
+# See ~/.mlflow_credentials.env.example for the expected shape.
+if [ -f "$HOME/.mlflow_credentials.env" ]; then
+  source "$HOME/.mlflow_credentials.env"
+fi
+
 exec taskset -c 0-7,12-31 python -m src.train.train "$@"
