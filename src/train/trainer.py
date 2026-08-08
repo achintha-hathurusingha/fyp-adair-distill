@@ -175,6 +175,19 @@ class Trainer:
             self.log.info(f"teacher: {teacher_path.name} "
                           f"(frozen, eval) | kd weight {self.kd_weight}")
 
+        # Optional MLflow logging -- best-effort, see src/utils/tracking.py for
+        # why every call there is wrapped and can never fail a training run.
+        # git_commit.txt / seed.txt already exist: create_run_dir() writes them
+        # before the Trainer is constructed.
+        from src.utils.tracking import RunTracker
+        self.tracker = RunTracker(cfg, self.run_dir, self.log)
+        commit_f = self.run_dir / "git_commit.txt"
+        seed_f = self.run_dir / "seed.txt"
+        self.tracker.log_start(
+            cfg,
+            commit_f.read_text(encoding="utf-8").strip() if commit_f.exists() else None,
+            int(seed_f.read_text(encoding="utf-8").strip()) if seed_f.exists() else None)
+
         opt_cfg = cfg.get("optim", {})
         wd = opt_cfg.get("weight_decay", 1e-4)
         # The residual scales (NAFBlock.beta/gamma) already get `wd` like every
@@ -515,6 +528,11 @@ class Trainer:
                          "loss": float("nan"), "max_grad_norm": max_gnorm,
                          "clip_hits": clip_hits})
                     self._dump_history()
+                    # tracker.finish() is NOT called here: metrics.json does not
+                    # exist yet (train.py writes it after train() returns), so
+                    # the artifact upload would miss it. train.py finishes the
+                    # tracker on both the normal and diverged path, once, after
+                    # write_metrics.
                     return self.state
 
                 if micro < self.accum_steps:
@@ -594,6 +612,7 @@ class Trainer:
                         **{f"act_{k}": v for k, v in acts.items()},
                     }
                     self.state.history.append(row)
+                    self.tracker.log_metrics(row, step=it)
                     self.log.info(
                         f"it {it:6d}  loss {row['loss']:.5f}  psnr {metrics['psnr']:.3f}  "
                         f"ssim {metrics['ssim']:.4f}  gnorm {gn:.3f}  "

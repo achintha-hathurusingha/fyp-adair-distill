@@ -114,6 +114,21 @@ ARMS: dict[str, dict] = {
                              "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
                     "config": "configs/train/m_derain_kd.yaml",
                     "desc": "M on derain, GT + response KD from AdaIR (gap demo)"},
+    # Item 3: KD-weight robustness check. Same config as M-DEHAZE-KD in every
+    # respect except distill.weight -- confirms whether the 3-seed result
+    # (weight=1.0, untuned) is sensitive to that choice across a 4x range.
+    "M-DEHAZE-KD-W05": {"norm": {"norm_type": "layernorm2d",
+                                 "full_res_norm_type": "affine_clamp",
+                                 "clamp_bound": 8.0,
+                                 "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+                        "config": "configs/train/m_dehaze_kd_w05.yaml",
+                        "desc": "M on dehaze, GT + response KD, weight=0.5"},
+    "M-DEHAZE-KD-W20": {"norm": {"norm_type": "layernorm2d",
+                                 "full_res_norm_type": "affine_clamp",
+                                 "clamp_bound": 8.0,
+                                 "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+                        "config": "configs/train/m_dehaze_kd_w20.yaml",
+                        "desc": "M on dehaze, GT + response KD, weight=2.0"},
 }
 
 #: w16_b8 — the config on which every norm variant is already profiled (arm S).
@@ -362,6 +377,11 @@ def main() -> None:
     print(json.dumps({"arm": args.arm, "best_psnr": state.best_psnr,
                       "iterations": state.iteration,
                       "peak_vram_gb": final.get("peak_vram_gb", 0.0)}, indent=2))
+
+    # After write_metrics, not inside Trainer.train(): metrics.json does not
+    # exist until here, and finish() attaches it as an artifact. Runs both the
+    # normal-completion and diverged path, since both return through here.
+    trainer.tracker.finish({"diverged": bool(final.get("diverged"))})
 
 
 if __name__ == "__main__":
