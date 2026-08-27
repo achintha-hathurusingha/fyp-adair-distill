@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Arch — Unified</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0d13; --surface:#12161f; --surface2:#181e2b; --border:#262c3d;
+    --ink:#e8eaf0; --dim:#8891a8; --dim2:#5c6478;
+    --baseline:#64748b; --response:#a78bfa; --freq:#5eead4; --feat:#f472b6;
+    --eca:#38bdf8; --groupnorm:#fb923c; --teacher:#f5c451;
+    --good:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:"IBM Plex Sans", system-ui, sans-serif; font-size:14.5px; line-height:1.5}
+  h1,h2,h3{font-family:"Spectral", Georgia, serif; font-weight:600; text-wrap:balance; margin:0}
+  .mono{font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .wrap{max-width:1220px; margin:0 auto; padding:28px 24px 60px}
+  header{display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:8px}
+  header h1{font-size:1.6rem}
+  header .sub{color:var(--dim); font-size:.92rem; margin-top:4px}
+  .status-pill{display:inline-flex; align-items:center; gap:7px; padding:5px 12px; border-radius:99px; font-size:.82rem; font-weight:500; border:1px solid var(--border); background:var(--surface)}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--dim2)}
+  .dot.running{background:var(--good); box-shadow:0 0 0 3px #4ade8033; animation:pulse 1.8s ease-in-out infinite}
+  .dot.stalled{background:var(--warn)} .dot.bad{background:var(--bad)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .banner{display:none; background:#3a1620; border:1px solid #7f2c3d; color:#ffb4c0; padding:12px 16px; border-radius:8px; margin:16px 0; font-size:.9rem}
+  .banner.show{display:block}
+  .host-label{display:flex; align-items:center; gap:10px; margin:34px 0 12px}
+  .host-label h2{font-size:1.05rem}
+  .host-badge{font-family:"IBM Plex Mono"; font-size:.72rem; color:var(--dim); background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:2px 8px}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
+  @media(max-width:900px){.grid3{grid-template-columns:1fr}}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 18px}
+  .card .head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
+  .card .head .name{font-family:"IBM Plex Mono"; font-size:.78rem; color:var(--dim); letter-spacing:.02em}
+  .bar-track{height:6px; border-radius:99px; background:var(--surface2); overflow:hidden; margin:10px 0 12px}
+  .bar-fill{height:100%; border-radius:99px; transition:width .4s ease}
+  .metrics{display:grid; grid-template-columns:1fr 1fr; gap:8px 14px}
+  .metric .k{color:var(--dim2); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em}
+  .metric .v{font-family:"IBM Plex Mono"; font-size:1.02rem; margin-top:2px}
+  .eta{color:var(--dim); font-size:.78rem; margin-top:10px}
+  section{margin-bottom:30px}
+  section > h2{font-size:1.15rem; margin-bottom:4px}
+  section > .desc{color:var(--dim); font-size:.86rem; margin-bottom:14px}
+  .chart-card{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:18px}
+  .chart-title{font-size:.85rem; color:var(--dim); margin-bottom:10px; font-weight:500}
+  canvas{width:100%; display:block}
+  .legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:12px; font-size:.78rem; color:var(--dim)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .swatch{width:14px; height:3px; border-radius:2px; display:inline-block}
+  table{width:100%; border-collapse:collapse; background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden}
+  th,td{padding:11px 14px; text-align:right; border-bottom:1px solid var(--border); font-size:.88rem}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--dim); font-weight:500; font-size:.74rem; text-transform:uppercase; letter-spacing:.04em; background:var(--surface2)}
+  tr:last-child td{border-bottom:none}
+  td.num, th.num{font-family:"IBM Plex Mono"}
+  .delta.pos{color:var(--good)} .delta.neg{color:var(--bad)}
+  .logpanel{background:#080a0f; border:1px solid var(--border); border-radius:10px; padding:14px 16px; max-height:220px; overflow-y:auto}
+  .logpanel .line{font-family:"IBM Plex Mono"; font-size:.76rem; color:var(--dim); white-space:pre-wrap; word-break:break-all}
+  .logpanel .line.marker{color:var(--ink)}
+  footer{color:var(--dim2); font-size:.78rem; text-align:center; margin-top:40px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Student Arch — Unified</h1>
+      <div class="sub">devon + qbits, six arms against the shared GT-only / response-KD baselines and the AdaIR teacher ceiling</div>
+    </div>
+    <div style="text-align:right">
+      <div class="status-pill"><span class="dot" id="overall-dot"></span><span id="overall-text">loading…</span></div>
+      <div class="sub" id="updated-at" style="margin-top:6px"></div>
+    </div>
+  </header>
+
+  <div class="banner" id="banner-devon"></div>
+  <div class="banner" id="banner-qbits"></div>
+
+  <div class="host-label"><h2>devon</h2><span class="host-badge">192.248.10.68</span></div>
+  <div class="grid3" id="cards-devon"></div>
+
+  <div class="host-label"><h2>qbits</h2><span class="host-badge">192.248.10.67</span></div>
+  <div class="grid3" id="cards-qbits"></div>
+
+  <section>
+    <h2>PSNR by iteration</h2>
+    <div class="desc">All six arms plus the teacher ceiling, on one axis.</div>
+    <div class="chart-card">
+      <canvas id="chart" height="340"></canvas>
+      <div class="legend" id="legend-main"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Training health</h2>
+    <div class="desc">Same comparison, other signals.</div>
+    <div class="grid2">
+      <div class="chart-card"><div class="chart-title">Loss</div><canvas id="chart-loss" height="220"></canvas></div>
+      <div class="chart-card"><div class="chart-title">SSIM</div><canvas id="chart-ssim" height="220"></canvas></div>
+      <div class="chart-card"><div class="chart-title">Gradient norm</div><canvas id="chart-gnorm" height="220"></canvas></div>
+      <div class="chart-card"><div class="chart-title">Clip rate %</div><canvas id="chart-clip" height="220"></canvas></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Comparison</h2>
+    <div class="desc">Mean of best PSNR reached per seed, so far.</div>
+    <table>
+      <thead><tr><th>model</th><th>host</th><th class="num">seeds</th><th class="num">PSNR</th><th class="num">gap to teacher</th><th class="num">Δ vs GT-only</th></tr></thead>
+      <tbody id="comp-table"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Log — devon</h2>
+    <div class="logpanel" id="log-devon"></div>
+  </section>
+  <section>
+    <h2>Log — qbits</h2>
+    <div class="logpanel" id="log-qbits"></div>
+  </section>
+
+  <footer>local aggregator polling both hosts over ssh every 6s · no tunnel, listens on 127.0.0.1</footer>
+</div>
+
+<script>
+// Arm registry: which host each arm lives on, its color, and whether it's a
+// "hero" (live, thicker line) vs a completed reference arm.
+const ARMS = [
+  {key:"M-DEHAZE",            label:"GT only",                         host:"devon", color:"var(--baseline)", hero:false},
+  {key:"M-DEHAZE-KD",         label:"GT + response KD",                host:"devon", color:"var(--response)", hero:false},
+  {key:"M-DEHAZE-KD-FREQ",    label:"GT + response + frequency KD",    host:"devon", color:"var(--freq)",     hero:true},
+  {key:"M-DEHAZE-KD-FEAT",    label:"GT + response + feature KD",      host:"qbits", color:"var(--feat)",     hero:true},
+  {key:"M-DEHAZE-ECA",        label:"GT only, SCA -> ECA",             host:"qbits", color:"var(--eca)",      hero:true},
+  {key:"M-DEHAZE-GROUPNORM",  label:"GT only, LayerNorm2d -> GroupNorm", host:"qbits", color:"var(--groupnorm)", hero:true},
+];
+const BASELINE_KEY = "M-DEHAZE";
+
+function fmt(n, d=2){ return (n===null || n===undefined || Number.isNaN(n)) ? '—' : n.toFixed(d); }
+function fmtEta(sec){
+  if(sec===null || !isFinite(sec) || sec<=0) return '—';
+  const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
+  return h>0 ? `${h}h ${m}m remaining` : `${m}m remaining`;
+}
+function statusDot(status){
+  if(status==='running') return 'running';
+  if(status==='done') return 'done';
+  if(status==='stalled') return 'stalled';
+  return '';
+}
+function colorOf(key){
+  const a = ARMS.find(a=>a.key===key);
+  return a ? getComputedStyle(document.documentElement).getPropertyValue(a.color.slice(4,-1)).trim() || a.color : '#888';
+}
+// resolve CSS var() strings to real hex once
+function resolveColor(cssVar){
+  const name = cssVar.match(/--[\w-]+/)[0];
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function armData(data, key){
+  const a = ARMS.find(x=>x.key===key);
+  const host = data.hosts[a.host];
+  if(!host || !host.arms || !host.arms[key]) return null;
+  return host.arms[key];
+}
+
+function renderCards(data, host, elId){
+  const el = document.getElementById(elId);
+  el.innerHTML = '';
+  ARMS.filter(a=>a.host===host).forEach(a=>{
+    const arm = armData(data, a.key);
+    if(!arm) return;
+    const s = arm.seeds[0]; // seed 0 is what's live for these demo arms
+    const last = s.latest;
+    const pct = Math.min(100, Math.round((s.progress||0)*100));
+    let etaTxt = '—';
+    if(last && s.status==='running' && s.iteration>0){
+      const rate = last.elapsed_s / s.iteration;
+      etaTxt = fmtEta(rate * (s.target_iters - s.iteration));
+    } else if(s.status==='done'){ etaTxt = 'complete'; }
+    else if(s.status==='pending'){ etaTxt = 'not started'; }
+    const color = resolveColor(a.color);
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="head">
+        <span class="name">${a.label}</span>
+        <span class="status-pill"><span class="dot ${statusDot(s.status)}"></span>${s.status}</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="metrics">
+        <div class="metric"><div class="k">iteration</div><div class="v">${s.iteration.toLocaleString()} / ${s.target_iters.toLocaleString()}</div></div>
+        <div class="metric"><div class="k">psnr</div><div class="v">${last?fmt(last.psnr):'—'}</div></div>
+        <div class="metric"><div class="k">loss</div><div class="v">${last?fmt(last.loss,4):'—'}</div></div>
+        <div class="metric"><div class="k">ssim</div><div class="v">${last?fmt(last.ssim,4):'—'}</div></div>
+      </div>
+      <div class="eta">${etaTxt}</div>
+    `;
+    el.appendChild(card);
+  });
+}
+
+function renderTable(data){
+  const baseline = armData(data, BASELINE_KEY);
+  const baselinePsnr = baseline ? baseline.mean_best_psnr : null;
+  const rows = [
+    {label:'AdaIR teacher (frozen)', host:'—', psnr:data.teacher_psnr, gap:0, seeds:'—', delta:null, color:null},
+  ];
+  ARMS.forEach(a=>{
+    const arm = armData(data, a.key);
+    if(!arm) return;
+    const delta = (arm.mean_best_psnr!==null && baselinePsnr!==null) ? arm.mean_best_psnr - baselinePsnr : null;
+    rows.push({label:a.label, host:a.host, psnr:arm.mean_best_psnr, gap:arm.gap_to_teacher,
+               seeds:arm.n_seeds_reporting, delta, color:a.hero?resolveColor(a.color):null});
+  });
+  const body = document.getElementById('comp-table');
+  body.innerHTML = rows.map(r=>{
+    const deltaTxt = r.delta===null ? '—' : (r.delta>=0?'+':'') + fmt(r.delta,4)+' dB';
+    const deltaCls = r.delta===null ? '' : (r.delta>=0?'delta pos':'delta neg');
+    const style = r.color ? ` style="color:${r.color}"` : '';
+    return `<tr${style}>
+      <td>${r.label}</td>
+      <td class="mono">${r.host}</td>
+      <td class="num">${r.seeds}${typeof r.seeds==='number'?'/3':''}</td>
+      <td class="num">${fmt(r.psnr)}</td>
+      <td class="num">${r.gap===null?'—':fmt(r.gap)+' dB'}</td>
+      <td class="num ${deltaCls}">${deltaTxt}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderLog(data){
+  ['devon','qbits'].forEach(host=>{
+    const h = data.hosts[host];
+    document.getElementById(`banner-${host}`).classList.toggle('show', !!(h && h.crash_detected));
+    if(h && h.crash_detected){
+      document.getElementById(`banner-${host}`).textContent =
+        `⚠ possible crash/instability signature in ${host}'s log — check below.`;
+    }
+    const el = document.getElementById(`log-${host}`);
+    const lines = (h && h.log_tail) || [];
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+    el.innerHTML = lines.map(l=>{
+      const isMarker = /SEED \d (START|DONE)|ALL (SEEDS|ARMS) COMPLETE|START|DONE/.test(l);
+      return `<div class="line ${isMarker?'marker':''}">${l.replace(/</g,'&lt;')}</div>`;
+    }).join('');
+    if(atBottom) el.scrollTop = el.scrollHeight;
+    if(h && h.error){
+      el.innerHTML += `<div class="line" style="color:var(--bad)">fetch error: ${h.error}</div>`;
+    }
+  });
+}
+
+// ---- chart ----
+function seriesFromHistory(history, key='psnr', scale=1){
+  return history.map(h=>({x:h.iteration, y:h[key]*scale}));
+}
+
+function drawChart(canvas, series, refLines, xMax, opts={}){
+  const decimals = opts.decimals ?? 2;
+  const dpr = window.devicePixelRatio || 1;
+  const cssH = canvas.getAttribute('height') ? Number(canvas.getAttribute('height')) : 320;
+  const cssW = canvas.clientWidth;
+  canvas.width = cssW*dpr; canvas.height = cssH*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,cssW,cssH);
+  const padL=48, padR=14, padT=14, padB=30;
+  const w = cssW-padL-padR, h = cssH-padT-padB;
+
+  const allY = [];
+  series.forEach(s=>s.pts.forEach(p=>{ if(Number.isFinite(p.y)) allY.push(p.y); }));
+  refLines.forEach(r=>{ if(r.y!==null && Number.isFinite(r.y)) allY.push(r.y); });
+
+  let yMin, yMax;
+  if(opts.range){
+    const [defMin, defMax] = opts.range;
+    yMin = allY.length ? Math.min(defMin, ...allY) : defMin;
+    yMax = allY.length ? Math.max(defMax, ...allY) : defMax;
+  } else if(allY.length){
+    yMin = Math.min(...allY); yMax = Math.max(...allY);
+    const pad = (yMax-yMin)*0.1 || 1; yMin -= pad; yMax += pad;
+  } else {
+    ctx.fillStyle = '#5c6478'; ctx.font='13px "IBM Plex Sans"';
+    ctx.fillText('no data yet', padL, padT+h/2);
+    return;
+  }
+
+  const X = x => padL + (x/xMax)*w;
+  const Y = y => padT + h - ((y-yMin)/(yMax-yMin))*h;
+
+  ctx.strokeStyle = '#1c2230'; ctx.lineWidth=1; ctx.font='11px "IBM Plex Mono"'; ctx.fillStyle='#5c6478';
+  for(let i=0;i<=5;i++){
+    const val = yMin + (yMax-yMin)*i/5, y = Y(val);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+w,y); ctx.stroke();
+    ctx.fillText(val.toFixed(decimals), 4, y+4);
+  }
+  for(let i=0;i<=6;i++){
+    const val = xMax*i/6;
+    ctx.fillText(Math.round(val).toLocaleString(), X(val)-14, padT+h+20);
+  }
+
+  refLines.forEach(r=>{
+    if(r.y===null) return;
+    ctx.strokeStyle = r.color; ctx.setLineDash([5,4]); ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(padL, Y(r.y)); ctx.lineTo(padL+w, Y(r.y)); ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  series.forEach(s=>{
+    if(s.pts.length===0) return;
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.hero?2.4:1.6;
+    ctx.globalAlpha = s.hero?1:0.85;
+    ctx.beginPath();
+    s.pts.forEach((p,i)=>{ const x=X(p.x), y=Y(p.y); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    if(s.hero){
+      const last = s.pts[s.pts.length-1];
+      ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(X(last.x), Y(last.y), 3.5, 0, 7); ctx.fill();
+    }
+  });
+}
+
+function seriesFor(data, key, metric, scale=1){
+  const a = ARMS.find(x=>x.key===key);
+  const arm = armData(data, key);
+  if(!arm) return null;
+  return {
+    color: resolveColor(a.color),
+    hero: a.hero,
+    pts: seriesFromHistory(arm.seeds[0].history, metric, scale),
+  };
+}
+
+let latestData = null;
+
+function renderAllCharts(data){
+  const xMax = 60000;
+  const allSeries = (metric, scale=1) => ARMS.map(a=>seriesFor(data, a.key, metric, scale)).filter(Boolean);
+
+  drawChart(document.getElementById('chart'), allSeries('psnr'),
+    [{y:data.teacher_psnr, color:resolveColor('var(--teacher)')}], xMax, {decimals:1, range:[16,36]});
+  drawChart(document.getElementById('chart-loss'), allSeries('loss'), [], xMax, {decimals:4, range:[0,0.4]});
+  drawChart(document.getElementById('chart-ssim'), allSeries('ssim'), [], xMax, {decimals:4, range:[0.5,1.0]});
+  drawChart(document.getElementById('chart-gnorm'), allSeries('grad_norm'), [], xMax, {decimals:2, range:[0,6]});
+  drawChart(document.getElementById('chart-clip'), allSeries('clip_rate', 100), [], xMax, {decimals:1, range:[0,50]});
+}
+
+function renderLegend(){
+  const el = document.getElementById('legend-main');
+  el.innerHTML = ARMS.map(a=>`<span><i class="swatch" style="background:${resolveColor(a.color)}"></i>${a.label} (${a.host})</span>`).join('')
+    + `<span><i class="swatch" style="background:${resolveColor('var(--teacher)')}"></i>AdaIR teacher</span>`;
+}
+
+async function tick(){
+  try{
+    const res = await fetch('/api/status', {cache:'no-store'});
+    const data = await res.json();
+    latestData = data;
+
+    let anyCrash = false, anyRunning = false, allDone = true;
+    const statusBits = [];
+    ['devon','qbits'].forEach(host=>{
+      const h = data.hosts[host];
+      if(!h){ statusBits.push(`${host}: unreachable`); allDone=false; return; }
+      if(h.crash_detected) anyCrash = true;
+      const hostArms = ARMS.filter(a=>a.host===host);
+      const running = hostArms.some(a=>{ const arm=armData(data,a.key); return arm && arm.seeds[0].status==='running'; });
+      const done = hostArms.every(a=>{ const arm=armData(data,a.key); return arm && arm.seeds[0].status==='done'; });
+      if(running) anyRunning = true;
+      if(!done) allDone = false;
+      statusBits.push(`${host}: ${done?'complete':running?'live':'idle'}`);
+    });
+    document.getElementById('overall-dot').className = 'dot ' + (anyCrash?'bad':allDone?'done':anyRunning?'running':'stalled');
+    document.getElementById('overall-text').textContent = anyCrash ? 'crash detected' : statusBits.join(' · ');
+    document.getElementById('updated-at').textContent = 'updated ' + data.generated_at.replace('T',' ');
+
+    renderCards(data, 'devon', 'cards-devon');
+    renderCards(data, 'qbits', 'cards-qbits');
+    renderTable(data);
+    renderLog(data);
+    renderAllCharts(data);
+  }catch(e){
+    document.getElementById('overall-text').textContent = 'dashboard: fetch failed — ' + e;
+  }
+}
+
+window.addEventListener('resize', ()=>{ if(latestData) renderAllCharts(latestData); });
+
+renderLegend();
+tick();
+setInterval(tick, 6000);
+</script>
+</body>
+</html>
