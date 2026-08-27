@@ -1,13 +1,14 @@
 # kd_freq live dashboard
 
 Single-page live view of the M-DEHAZE-KD-FREQ 3-seed run (see
-) against the completed GT-only and response-KD
+`reports/kd_freq/plan.md`) against the completed GT-only and response-KD
 baselines. Stdlib-only Python — no pip dependencies, runs identically inside
 Docker or directly on the host.
 
 ## Run directly (no Docker)
 
-    RUNS_ROOT=~/fyp-adair-distill/runs LAUNCH_LOG=/tmp/kd_freq_3seed.log       python3 dashboard/server.py
+    RUNS_ROOT=~/fyp-adair-distill/runs LAUNCH_LOG=/tmp/kd_freq_3seed.log \
+      python3 dashboard/server.py
     # -> http://localhost:8080
 
 ## Run with Docker
