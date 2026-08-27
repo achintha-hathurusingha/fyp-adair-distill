@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-DEHAZE-KD-FREQ — Live Run</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0d13; --surface:#12161f; --surface2:#181e2b; --border:#262c3d;
+    --ink:#e8eaf0; --dim:#8891a8; --dim2:#5c6478;
+    --accent:#5eead4; --accent-dim:#5eead433;
+    --response:#a78bfa; --baseline:#64748b; --teacher:#f5c451;
+    --good:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans", system-ui, sans-serif;
+    font-size:14.5px; line-height:1.5;
+  }
+  h1,h2,h3{font-family:"Spectral", Georgia, serif; font-weight:600; text-wrap:balance; margin:0}
+  .mono{font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .wrap{max-width:1180px; margin:0 auto; padding:28px 24px 60px}
+
+  header{display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:22px}
+  header h1{font-size:1.6rem; color:var(--ink)}
+  header .sub{color:var(--dim); font-size:.92rem; margin-top:4px}
+  .status-pill{display:inline-flex; align-items:center; gap:7px; padding:5px 12px; border-radius:99px; font-size:.82rem; font-weight:500; border:1px solid var(--border); background:var(--surface)}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--dim2)}
+  .dot.running{background:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); animation:pulse 1.8s ease-in-out infinite}
+  .dot.done{background:var(--good)}
+  .dot.stalled{background:var(--warn)}
+  .dot.bad{background:var(--bad)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+  .banner{display:none; background:#3a1620; border:1px solid #7f2c3d; color:#ffb4c0; padding:12px 16px; border-radius:8px; margin-bottom:20px; font-size:.9rem}
+  .banner.show{display:block}
+
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:26px}
+  @media(max-width:820px){.grid3{grid-template-columns:1fr}}
+
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 18px}
+  .card .head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
+  .card .head .name{font-family:"IBM Plex Mono"; font-size:.82rem; color:var(--dim); letter-spacing:.03em}
+  .bar-track{height:6px; border-radius:99px; background:var(--surface2); overflow:hidden; margin:10px 0 12px}
+  .bar-fill{height:100%; background:linear-gradient(90deg, var(--accent), #93f5e6); border-radius:99px; transition:width .4s ease}
+  .metrics{display:grid; grid-template-columns:1fr 1fr; gap:8px 14px}
+  .metric .k{color:var(--dim2); font-size:.72rem; text-transform:uppercase; letter-spacing:.05em}
+  .metric .v{font-family:"IBM Plex Mono"; font-size:1.05rem; margin-top:2px}
+  .eta{color:var(--dim); font-size:.78rem; margin-top:10px}
+
+  section{margin-bottom:30px}
+  section > h2{font-size:1.15rem; margin-bottom:4px}
+  section > .desc{color:var(--dim); font-size:.86rem; margin-bottom:14px}
+
+  .chart-card{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:18px}
+  canvas{width:100%; display:block}
+  .legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--dim)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .swatch{width:14px; height:3px; border-radius:2px; display:inline-block}
+
+  table{width:100%; border-collapse:collapse; background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden}
+  th,td{padding:11px 14px; text-align:right; border-bottom:1px solid var(--border); font-size:.9rem}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--dim); font-weight:500; font-size:.76rem; text-transform:uppercase; letter-spacing:.04em; background:var(--surface2)}
+  tr:last-child td{border-bottom:none}
+  td.num, th.num{font-family:"IBM Plex Mono"}
+  tr.hero td{color:var(--accent)}
+  .delta.pos{color:var(--good)} .delta.neg{color:var(--bad)}
+
+  .logpanel{background:#080a0f; border:1px solid var(--border); border-radius:10px; padding:14px 16px; max-height:260px; overflow-y:auto}
+  .logpanel .line{font-family:"IBM Plex Mono"; font-size:.78rem; color:var(--dim); white-space:pre-wrap; word-break:break-all}
+  .logpanel .line.marker{color:var(--accent)}
+  footer{color:var(--dim2); font-size:.78rem; text-align:center; margin-top:40px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>M-DEHAZE-KD-FREQ</h1>
+      <div class="sub">Frequency-domain distillation loss · dehaze · 3 seeds · vs response-KD &amp; GT-only baselines</div>
+    </div>
+    <div style="text-align:right">
+      <div class="status-pill"><span class="dot" id="overall-dot"></span><span id="overall-text">loading…</span></div>
+      <div class="sub" id="updated-at" style="margin-top:6px"></div>
+    </div>
+  </header>
+
+  <div class="banner" id="crash-banner">⚠ possible crash / instability signature detected in the training log — check the log panel below.</div>
+
+  <section>
+    <div class="grid3" id="seed-cards"></div>
+  </section>
+
+  <section>
+    <h2>PSNR by iteration</h2>
+    <div class="desc">Live spectrum-KD seeds (teal) against the completed baseline / response-KD means and the frozen teacher ceiling.</div>
+    <div class="chart-card">
+      <canvas id="chart" height="320"></canvas>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--accent)"></i>response + frequency KD (live)</span>
+        <span><i class="swatch" style="background:var(--response)"></i>response KD only</span>
+        <span><i class="swatch" style="background:var(--baseline)"></i>GT only</span>
+        <span><i class="swatch" style="background:var(--teacher)"></i>AdaIR teacher</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Comparison</h2>
+    <div class="desc">Mean of best PSNR reached per seed, so far. Fills in live as each frequency-KD seed progresses.</div>
+    <table>
+      <thead><tr><th>model</th><th class="num">seeds</th><th class="num">PSNR</th><th class="num">gap to teacher</th><th class="num">Δ vs GT-only</th></tr></thead>
+      <tbody id="comp-table"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Log</h2>
+    <div class="logpanel" id="log"></div>
+  </section>
+
+  <footer>polling /api/status every 5s · reads run history.json directly off disk, no training-process coupling</footer>
+</div>
+
+<script>
+const TEACHER_LINE_COLOR = getComputedStyle(document.documentElement).getPropertyValue('--teacher').trim();
+
+function fmt(n, d=2){ return (n===null || n===undefined || Number.isNaN(n)) ? '—' : n.toFixed(d); }
+function fmtEta(sec){
+  if(sec===null || !isFinite(sec) || sec<=0) return '—';
+  const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
+  return h>0 ? `${h}h ${m}m remaining` : `${m}m remaining`;
+}
+
+function statusDot(status){
+  if(status==='running') return 'running';
+  if(status==='done') return 'done';
+  if(status==='stalled') return 'stalled';
+  return '';
+}
+
+function renderSeedCards(freq){
+  const el = document.getElementById('seed-cards');
+  el.innerHTML = '';
+  freq.seeds.forEach(s=>{
+    const last = s.latest;
+    const pct = Math.min(100, Math.round((s.progress||0)*100));
+    let etaTxt = '—';
+    if(last && s.status==='running' && s.iteration>0){
+      const rate = last.elapsed_s / s.iteration;
+      etaTxt = fmtEta(rate * (s.target_iters - s.iteration));
+    } else if(s.status==='done'){ etaTxt = 'complete'; }
+    else if(s.status==='pending'){ etaTxt = 'not started'; }
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="head">
+        <span class="name">SEED ${s.seed}</span>
+        <span class="status-pill"><span class="dot ${statusDot(s.status)}"></span>${s.status}</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="metrics">
+        <div class="metric"><div class="k">iteration</div><div class="v">${s.iteration.toLocaleString()} / ${s.target_iters.toLocaleString()}</div></div>
+        <div class="metric"><div class="k">psnr</div><div class="v">${last?fmt(last.psnr):'—'}</div></div>
+        <div class="metric"><div class="k">loss</div><div class="v">${last?fmt(last.loss,4):'—'}</div></div>
+        <div class="metric"><div class="k">ssim</div><div class="v">${last?fmt(last.ssim,4):'—'}</div></div>
+      </div>
+      <div class="eta">${etaTxt}</div>
+    `;
+    el.appendChild(card);
+  });
+}
+
+function renderTable(data){
+  const {baseline, response_kd, freq_kd} = data.arms;
+  const rows = [
+    {label:'AdaIR teacher (frozen)', psnr:data.teacher_psnr, gap:0, seeds:'—', delta:null, hero:false},
+    {label:'GT only', psnr:baseline.mean_best_psnr, gap:baseline.gap_to_teacher, seeds:baseline.n_seeds_reporting, delta:0, hero:false},
+    {label:'GT + response KD', psnr:response_kd.mean_best_psnr, gap:response_kd.gap_to_teacher, seeds:response_kd.n_seeds_reporting,
+      delta: (response_kd.mean_best_psnr!==null && baseline.mean_best_psnr!==null) ? response_kd.mean_best_psnr-baseline.mean_best_psnr : null, hero:false},
+    {label:'GT + response + frequency KD', psnr:freq_kd.mean_best_psnr, gap:freq_kd.gap_to_teacher, seeds:freq_kd.n_seeds_reporting,
+      delta: (freq_kd.mean_best_psnr!==null && baseline.mean_best_psnr!==null) ? freq_kd.mean_best_psnr-baseline.mean_best_psnr : null, hero:true},
+  ];
+  const body = document.getElementById('comp-table');
+  body.innerHTML = rows.map(r=>{
+    const deltaTxt = r.delta===null ? '—' : (r.delta>=0?'+':'') + fmt(r.delta,4)+' dB';
+    const deltaCls = r.delta===null ? '' : (r.delta>=0?'delta pos':'delta neg');
+    return `<tr class="${r.hero?'hero':''}">
+      <td>${r.label}</td>
+      <td class="num">${r.seeds}${r.seeds!=='—'?'/3':''}</td>
+      <td class="num">${fmt(r.psnr)}</td>
+      <td class="num">${r.gap===null?'—':fmt(r.gap)+' dB'}</td>
+      <td class="num ${deltaCls}">${deltaTxt}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderLog(data){
+  document.getElementById('crash-banner').classList.toggle('show', !!data.crash_detected);
+  const el = document.getElementById('log');
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+  el.innerHTML = data.log_tail.map(l=>{
+    const isMarker = /SEED \d (START|DONE)|ALL SEEDS COMPLETE/.test(l);
+    return `<div class="line ${isMarker?'marker':''}">${l.replace(/</g,'&lt;')}</div>`;
+  }).join('');
+  if(atBottom) el.scrollTop = el.scrollHeight;
+}
+
+// ---- chart ----
+function seriesFromHistory(history){ return history.map(h=>({x:h.iteration, y:h.psnr})); }
+
+function drawChart(canvas, seedSeriesList, refLines, xMax){
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth, cssH = 320;
+  canvas.width = cssW*dpr; canvas.height = cssH*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const padL=44, padR=14, padT=14, padB=30;
+  const w = cssW-padL-padR, h = cssH-padT-padB;
+
+  let yMin=18, yMax=36;
+  seedSeriesList.forEach(s=>s.forEach(p=>{ if(p.y<yMin) yMin=p.y-0.5; if(p.y>yMax) yMax=p.y+0.5; }));
+  refLines.forEach(r=>{ if(r.y!==null){ if(r.y<yMin) yMin=r.y-0.5; if(r.y>yMax) yMax=r.y+0.5; }});
+
+  const X = x => padL + (x/xMax)*w;
+  const Y = y => padT + h - ((y-yMin)/(yMax-yMin))*h;
+
+  // grid
+  ctx.strokeStyle = '#1c2230'; ctx.lineWidth=1; ctx.font='11px "IBM Plex Mono"'; ctx.fillStyle='#5c6478';
+  const ySteps=5;
+  for(let i=0;i<=ySteps;i++){
+    const val = yMin + (yMax-yMin)*i/ySteps;
+    const y = Y(val);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+w,y); ctx.stroke();
+    ctx.fillText(val.toFixed(1), 4, y+4);
+  }
+  const xSteps=6;
+  for(let i=0;i<=xSteps;i++){
+    const val = xMax*i/xSteps;
+    ctx.fillText(Math.round(val).toLocaleString(), X(val)-14, padT+h+20);
+  }
+
+  // reference lines
+  refLines.forEach(r=>{
+    if(r.y===null) return;
+    ctx.strokeStyle = r.color; ctx.setLineDash([5,4]); ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(padL, Y(r.y)); ctx.lineTo(padL+w, Y(r.y)); ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  // seed series
+  seedSeriesList.forEach(pts=>{
+    if(pts.length===0) return;
+    ctx.strokeStyle = '#5eead4'; ctx.lineWidth=2; ctx.beginPath();
+    pts.forEach((p,i)=>{ const x=X(p.x), y=Y(p.y); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+    ctx.stroke();
+    const last = pts[pts.length-1];
+    ctx.fillStyle = '#5eead4'; ctx.beginPath(); ctx.arc(X(last.x), Y(last.y), 3.5, 0, 7); ctx.fill();
+  });
+}
+
+let latestData = null;
+
+async function tick(){
+  try{
+    const res = await fetch('/api/status', {cache:'no-store'});
+    const data = await res.json();
+    latestData = data;
+
+    const freq = data.arms.freq_kd;
+    const running = freq.seeds.some(s=>s.status==='running');
+    const allDone = freq.seeds.every(s=>s.status==='done');
+    document.getElementById('overall-dot').className = 'dot ' + (data.crash_detected?'bad':allDone?'done':running?'running':'stalled');
+    document.getElementById('overall-text').textContent = data.crash_detected ? 'crash detected'
+      : allDone ? 'all 3 seeds complete' : running ? `training — seed ${freq.seeds.findIndex(s=>s.status==='running')} live` : 'idle';
+    document.getElementById('updated-at').textContent = 'updated ' + data.generated_at.replace('T',' ');
+
+    renderSeedCards(freq);
+    renderTable(data);
+    renderLog(data);
+
+    const seriesList = freq.seeds.map(s=>seriesFromHistory(s.history));
+    const refLines = [
+      {y:data.arms.baseline.mean_best_psnr, color:getComputedStyle(document.documentElement).getPropertyValue('--baseline')},
+      {y:data.arms.response_kd.mean_best_psnr, color:getComputedStyle(document.documentElement).getPropertyValue('--response')},
+      {y:data.teacher_psnr, color:TEACHER_LINE_COLOR},
+    ];
+    drawChart(document.getElementById('chart'), seriesList, refLines, freq.seeds[0]?.target_iters || 60000);
+  }catch(e){
+    document.getElementById('overall-text').textContent = 'dashboard: fetch failed';
+  }
+}
+
+window.addEventListener('resize', ()=>{ if(latestData){
+  const freq = latestData.arms.freq_kd;
+  const seriesList = freq.seeds.map(s=>seriesFromHistory(s.history));
+  const refLines = [
+    {y:latestData.arms.baseline.mean_best_psnr, color:getComputedStyle(document.documentElement).getPropertyValue('--baseline')},
+    {y:latestData.arms.response_kd.mean_best_psnr, color:getComputedStyle(document.documentElement).getPropertyValue('--response')},
+    {y:latestData.teacher_psnr, color:TEACHER_LINE_COLOR},
+  ];
+  drawChart(document.getElementById('chart'), seriesList, refLines, freq.seeds[0]?.target_iters || 60000);
+}});
+
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>
