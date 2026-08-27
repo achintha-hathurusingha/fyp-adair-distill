@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M-DEHAZE-KD-FREQ — Live Run</title>
+<title>kd_freq vs kd_feat — Live Run</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -13,6 +13,7 @@
     --ink:#e8eaf0; --dim:#8891a8; --dim2:#5c6478;
     --accent:#5eead4; --accent-dim:#5eead433;
     --response:#a78bfa; --baseline:#64748b; --teacher:#f5c451;
+    --feat:#f472b6; --feat-dim:#f472b633;
     --good:#4ade80; --warn:#fbbf24; --bad:#f87171;
   }
   *{box-sizing:border-box}
@@ -84,8 +85,8 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>M-DEHAZE-KD-FREQ</h1>
-      <div class="sub">Frequency-domain distillation loss · dehaze · 3 seeds · vs response-KD &amp; GT-only baselines</div>
+      <h1>kd_freq vs kd_feat</h1>
+      <div class="sub">Two distillation mechanisms, dehaze, vs the same GT-only &amp; response-KD baselines and AdaIR teacher ceiling</div>
     </div>
     <div style="text-align:right">
       <div class="status-pill"><span class="dot" id="overall-dot"></span><span id="overall-text">loading…</span></div>
@@ -93,19 +94,27 @@
     </div>
   </header>
 
-  <div class="banner" id="crash-banner">⚠ possible crash / instability signature detected in the training log — check the log panel below.</div>
+  <div class="banner" id="crash-banner">⚠ possible crash / instability signature detected in the kd_freq log — check the log panel below.</div>
+  <div class="banner" id="crash-banner-feat">⚠ possible crash / instability signature detected in the kd_feat log — check the log panel below.</div>
 
   <section>
+    <h2 style="font-size:1rem; color:var(--accent); margin-bottom:10px">response + frequency KD (output-spectrum loss)</h2>
     <div class="grid3" id="seed-cards"></div>
   </section>
 
   <section>
+    <h2 style="font-size:1rem; color:var(--feat); margin-bottom:10px">response + feature KD (latent_pre loss)</h2>
+    <div class="grid3" id="seed-cards-feat"></div>
+  </section>
+
+  <section>
     <h2>PSNR by iteration</h2>
-    <div class="desc">Live spectrum-KD seeds (teal) against the completed baseline / response-KD means and the frozen teacher ceiling.</div>
+    <div class="desc">Both live KD mechanisms against the completed baseline / response-KD means and the frozen teacher ceiling.</div>
     <div class="chart-card">
       <canvas id="chart" height="320"></canvas>
       <div class="legend">
         <span><i class="swatch" style="background:var(--accent)"></i>response + frequency KD (live)</span>
+        <span><i class="swatch" style="background:var(--feat)"></i>response + feature KD (live)</span>
         <span><i class="swatch" style="background:var(--response)"></i>response KD only</span>
         <span><i class="swatch" style="background:var(--baseline)"></i>GT only</span>
         <span><i class="swatch" style="background:var(--teacher)"></i>AdaIR teacher</span>
@@ -115,9 +124,10 @@
 
   <section>
     <h2>Training health</h2>
-    <div class="desc">Same three-way comparison as above, other signals — loss and SSIM should move with PSNR; gradient norm and clip rate are stability checks, not quality metrics.</div>
+    <div class="desc">Same comparison as above, other signals — loss and SSIM should move with PSNR; gradient norm and clip rate are stability checks, not quality metrics.</div>
     <div class="legend" style="margin:0 0 16px">
       <span><i class="swatch" style="background:var(--accent)"></i>response + frequency KD (live)</span>
+      <span><i class="swatch" style="background:var(--feat)"></i>response + feature KD (live)</span>
       <span><i class="swatch" style="background:var(--response)"></i>response KD only</span>
       <span><i class="swatch" style="background:var(--baseline)"></i>GT only</span>
     </div>
@@ -143,7 +153,7 @@
 
   <section>
     <h2>Comparison</h2>
-    <div class="desc">Mean of best PSNR reached per seed, so far. Fills in live as each frequency-KD seed progresses.</div>
+    <div class="desc">Mean of best PSNR reached per seed, so far. Fills in live as each arm's seeds progress.</div>
     <table>
       <thead><tr><th>model</th><th class="num">seeds</th><th class="num">PSNR</th><th class="num">gap to teacher</th><th class="num">Δ vs GT-only</th></tr></thead>
       <tbody id="comp-table"></tbody>
@@ -151,8 +161,13 @@
   </section>
 
   <section>
-    <h2>Log</h2>
+    <h2>Log — kd_freq</h2>
     <div class="logpanel" id="log"></div>
+  </section>
+
+  <section>
+    <h2>Log — kd_feat</h2>
+    <div class="logpanel" id="log-feat"></div>
   </section>
 
   <footer>polling /api/status every 5s · reads run history.json directly off disk, no training-process coupling</footer>
@@ -175,10 +190,10 @@ function statusDot(status){
   return '';
 }
 
-function renderSeedCards(freq){
-  const el = document.getElementById('seed-cards');
+function renderSeedCards(arm, elId){
+  const el = document.getElementById(elId);
   el.innerHTML = '';
-  freq.seeds.forEach(s=>{
+  arm.seeds.forEach(s=>{
     const last = s.latest;
     const pct = Math.min(100, Math.round((s.progress||0)*100));
     let etaTxt = '—';
@@ -209,20 +224,25 @@ function renderSeedCards(freq){
 }
 
 function renderTable(data){
-  const {baseline, response_kd, freq_kd} = data.arms;
+  const {baseline, response_kd, freq_kd, feat_kd} = data.arms;
+  const deltaVs = arm => (arm.mean_best_psnr!==null && baseline.mean_best_psnr!==null)
+    ? arm.mean_best_psnr - baseline.mean_best_psnr : null;
   const rows = [
     {label:'AdaIR teacher (frozen)', psnr:data.teacher_psnr, gap:0, seeds:'—', delta:null, hero:false},
     {label:'GT only', psnr:baseline.mean_best_psnr, gap:baseline.gap_to_teacher, seeds:baseline.n_seeds_reporting, delta:0, hero:false},
     {label:'GT + response KD', psnr:response_kd.mean_best_psnr, gap:response_kd.gap_to_teacher, seeds:response_kd.n_seeds_reporting,
-      delta: (response_kd.mean_best_psnr!==null && baseline.mean_best_psnr!==null) ? response_kd.mean_best_psnr-baseline.mean_best_psnr : null, hero:false},
+      delta: deltaVs(response_kd), hero:false},
     {label:'GT + response + frequency KD', psnr:freq_kd.mean_best_psnr, gap:freq_kd.gap_to_teacher, seeds:freq_kd.n_seeds_reporting,
-      delta: (freq_kd.mean_best_psnr!==null && baseline.mean_best_psnr!==null) ? freq_kd.mean_best_psnr-baseline.mean_best_psnr : null, hero:true},
+      delta: deltaVs(freq_kd), hero:true, color:'var(--accent)'},
+    {label:'GT + response + feature KD', psnr:feat_kd.mean_best_psnr, gap:feat_kd.gap_to_teacher, seeds:feat_kd.n_seeds_reporting,
+      delta: deltaVs(feat_kd), hero:true, color:'var(--feat)'},
   ];
   const body = document.getElementById('comp-table');
   body.innerHTML = rows.map(r=>{
     const deltaTxt = r.delta===null ? '—' : (r.delta>=0?'+':'') + fmt(r.delta,4)+' dB';
     const deltaCls = r.delta===null ? '' : (r.delta>=0?'delta pos':'delta neg');
-    return `<tr class="${r.hero?'hero':''}">
+    const style = r.hero && r.color ? ` style="color:${r.color}"` : '';
+    return `<tr${style}>
       <td>${r.label}</td>
       <td class="num">${r.seeds}${r.seeds!=='—'?'/3':''}</td>
       <td class="num">${fmt(r.psnr)}</td>
@@ -232,15 +252,21 @@ function renderTable(data){
   }).join('');
 }
 
-function renderLog(data){
-  document.getElementById('crash-banner').classList.toggle('show', !!data.crash_detected);
-  const el = document.getElementById('log');
+function renderLogPanel(elId, lines){
+  const el = document.getElementById(elId);
   const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-  el.innerHTML = data.log_tail.map(l=>{
+  el.innerHTML = lines.map(l=>{
     const isMarker = /SEED \d (START|DONE)|ALL SEEDS COMPLETE/.test(l);
     return `<div class="line ${isMarker?'marker':''}">${l.replace(/</g,'&lt;')}</div>`;
   }).join('');
   if(atBottom) el.scrollTop = el.scrollHeight;
+}
+
+function renderLog(data){
+  document.getElementById('crash-banner').classList.toggle('show', !!data.crash_detected);
+  document.getElementById('crash-banner-feat').classList.toggle('show', !!data.crash_detected_feat);
+  renderLogPanel('log', data.log_tail);
+  renderLogPanel('log-feat', data.log_tail_feat || []);
 }
 
 // ---- chart ----
@@ -324,9 +350,9 @@ function drawChart(canvas, arms, refLines, xMax, opts={}){
 
 let latestData = null;
 
-// Builds the shared 3-arm comparison (GT-only / response-KD / response+freq-KD)
-// for one metric key, so every chart can be tracked against the same two
-// completed baselines the live run is being judged against.
+// Builds the shared comparison — GT-only / response-KD / response+freq-KD /
+// response+feat-KD — for one metric key, so every chart tracks both live
+// mechanisms against the same two completed baselines.
 function armsFor(data, key, scale=1){
   const cs = getComputedStyle(document.documentElement);
   return [
@@ -336,12 +362,14 @@ function armsFor(data, key, scale=1){
      seeds: data.arms.response_kd.seeds.map(s=>seriesFromHistory(s.history,key,scale))},
     {color: cs.getPropertyValue('--accent').trim(), hero:true,
      seeds: data.arms.freq_kd.seeds.map(s=>seriesFromHistory(s.history,key,scale))},
+    {color: cs.getPropertyValue('--feat').trim(), hero:true,
+     seeds: data.arms.feat_kd.seeds.map(s=>seriesFromHistory(s.history,key,scale))},
   ];
 }
 
 function renderAllCharts(data){
-  const freq = data.arms.freq_kd;
-  const xMax = freq.seeds[0]?.target_iters || 60000;
+  const freq = data.arms.freq_kd, feat = data.arms.feat_kd;
+  const xMax = freq.seeds[0]?.target_iters || feat.seeds[0]?.target_iters || 60000;
 
   drawChart(document.getElementById('chart'), armsFor(data,'psnr'),
     [{y:data.teacher_psnr, color:TEACHER_LINE_COLOR}], xMax, {decimals:1});
@@ -352,21 +380,31 @@ function renderAllCharts(data){
   drawChart(document.getElementById('chart-clip'), armsFor(data,'clip_rate',100), [], xMax, {decimals:1});
 }
 
+function armStatusText(arm, label){
+  const running = arm.seeds.some(s=>s.status==='running');
+  const allDone = arm.seeds.every(s=>s.status==='done');
+  if(allDone) return `${label}: complete`;
+  if(running) return `${label}: seed ${arm.seeds.findIndex(s=>s.status==='running')} live`;
+  return `${label}: idle`;
+}
+
 async function tick(){
   try{
     const res = await fetch('/api/status', {cache:'no-store'});
     const data = await res.json();
     latestData = data;
 
-    const freq = data.arms.freq_kd;
-    const running = freq.seeds.some(s=>s.status==='running');
-    const allDone = freq.seeds.every(s=>s.status==='done');
-    document.getElementById('overall-dot').className = 'dot ' + (data.crash_detected?'bad':allDone?'done':running?'running':'stalled');
-    document.getElementById('overall-text').textContent = data.crash_detected ? 'crash detected'
-      : allDone ? 'all 3 seeds complete' : running ? `training — seed ${freq.seeds.findIndex(s=>s.status==='running')} live` : 'idle';
+    const freq = data.arms.freq_kd, feat = data.arms.feat_kd;
+    const anyCrash = data.crash_detected || data.crash_detected_feat;
+    const anyRunning = freq.seeds.some(s=>s.status==='running') || feat.seeds.some(s=>s.status==='running');
+    const allDone = freq.seeds.every(s=>s.status==='done') && feat.seeds.every(s=>s.status==='done');
+    document.getElementById('overall-dot').className = 'dot ' + (anyCrash?'bad':allDone?'done':anyRunning?'running':'stalled');
+    document.getElementById('overall-text').textContent = anyCrash ? 'crash detected'
+      : `${armStatusText(freq,'kd_freq')} · ${armStatusText(feat,'kd_feat')}`;
     document.getElementById('updated-at').textContent = 'updated ' + data.generated_at.replace('T',' ');
 
-    renderSeedCards(freq);
+    renderSeedCards(freq, 'seed-cards');
+    renderSeedCards(feat, 'seed-cards-feat');
     renderTable(data);
     renderLog(data);
     renderAllCharts(data);

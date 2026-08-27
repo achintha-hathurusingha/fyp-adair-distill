@@ -25,6 +25,7 @@ from pathlib import Path
 
 RUNS_ROOT = Path(os.environ.get("RUNS_ROOT", "/data/runs"))
 LAUNCH_LOG = Path(os.environ.get("LAUNCH_LOG", "/data/logs/kd_freq_3seed.log"))
+LAUNCH_LOG_FEAT = Path(os.environ.get("LAUNCH_LOG_FEAT", "/data/logs/kd_feat_3seed.log"))
 TEACHER_PSNR = 34.5056  # AdaIR teacher, dehaze, frozen — reports/report_demo_dehaze.md
 TARGET_ITERS = 60000
 PORT = int(os.environ.get("PORT", "8080"))
@@ -79,13 +80,29 @@ def _seed_snapshot(arm_exact: str, seed: int) -> dict:
     iteration = last["iteration"] if last else 0
     completed_marker = (run_dir / "last.pth").exists() and iteration >= total_iters
 
-    # "running" vs "stalled": history file mtime within the last few minutes.
+    # "running" vs "stalled": history file mtime within the last checkpoint
+    # interval, with margin. Checkpoints land every val_every=2000 iters,
+    # which has run ~16 min/2000 iters in practice (slower with two
+    # concurrent experiments sharing the GPU/CPU) — a threshold shorter than
+    # that reports "stalled" every cycle right before the next checkpoint
+    # lands, which is exactly what happened at 600s (caught live: kd_freq
+    # showed "stalled" mid-training with nothing actually wrong). 1800s
+    # covers the observed interval with real margin.
     hf = run_dir / "history.json"
-    fresh = hf.exists() and (time.time() - hf.stat().st_mtime) < 600
+    fresh = hf.exists() and (time.time() - hf.stat().st_mtime) < 1800
+
+    # Before the FIRST checkpoint, history.json doesn't exist yet at all --
+    # without this, a run that has genuinely started shows "pending" (=
+    # "not started") for its first ~16 minutes. config.yaml is written at
+    # process start, before any training iterations, so its recency is a
+    # real "the process is alive" signal in that window.
+    just_started = (not history and not hf.exists()
+                     and (run_dir / "config.yaml").exists()
+                     and (time.time() - (run_dir / "config.yaml").stat().st_mtime) < 1800)
 
     if completed_marker:
         status = "done"
-    elif fresh:
+    elif fresh or just_started:
         status = "running"
     elif history:
         status = "stalled"
@@ -119,11 +136,11 @@ def _arm_summary(arm_exact: str, seeds=(0, 1, 2)) -> dict:
     }
 
 
-def _tail_log(n: int = 40) -> list[str]:
-    if not LAUNCH_LOG.exists():
+def _tail_log(path: Path, n: int = 40) -> list[str]:
+    if not path.exists():
         return []
     try:
-        with LAUNCH_LOG.open("rb") as f:
+        with path.open("rb") as f:
             f.seek(0, os.SEEK_END)
             size = f.tell()
             read_size = min(size, 65536)
@@ -139,20 +156,26 @@ def build_status() -> dict:
     baseline = _arm_summary("M-DEHAZE")
     response_kd = _arm_summary("M-DEHAZE-KD")
     freq_kd = _arm_summary("M-DEHAZE-KD-FREQ")
+    feat_kd = _arm_summary("M-DEHAZE-KD-FEAT")
 
-    log_tail = _tail_log()
-    crash = any(re.search(r"Traceback|CUDA out of memory|nonfinite|NaN\b", ln)
-                for ln in log_tail)
+    log_tail = _tail_log(LAUNCH_LOG)
+    log_tail_feat = _tail_log(LAUNCH_LOG_FEAT)
+    crash_pattern = r"Traceback|CUDA out of memory|nonfinite|NaN\b|Error"
+    crash = any(re.search(crash_pattern, ln) for ln in log_tail)
+    crash_feat = any(re.search(crash_pattern, ln) for ln in log_tail_feat)
 
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "teacher_psnr": TEACHER_PSNR,
         "crash_detected": crash,
+        "crash_detected_feat": crash_feat,
         "log_tail": log_tail,
+        "log_tail_feat": log_tail_feat,
         "arms": {
             "baseline": baseline,
             "response_kd": response_kd,
             "freq_kd": freq_kd,
+            "feat_kd": feat_kd,
         },
     }
 
