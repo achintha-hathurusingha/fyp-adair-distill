@@ -1,0 +1,81 @@
+# M-DEHAZE-ECA — student_arch experiment (reports/student_arch/findings.md).
+#
+# IDENTICAL to m_dehaze_baseline.yaml except ONE arch key: attn_type: eca.
+# Same architecture otherwise, same 4,000-image seeded subset, same schedule,
+# same seed, same optimiser, same held-out set, GT-only (no teacher) — so any
+# delta against m_dehaze_baseline.yaml's already-measured 32.8898dB (3-seed
+# mean) is attributable to the one thing that changed: SCA -> ECA channel
+# attention in every NAFBlock.
+#
+# WHY. Literature review (NAFNet block ablation, arXiv 2506.19845) found ECA
+# a real drop-in candidate for NAFNet's SCA. Smoke-tested here: same output
+# shape, and a genuine side-effect — ECA is 13% FEWER params (6,387,179 vs
+# 7,371,923) than SCA, because its 1D conv is cheaper than SCA's 1x1 conv
+# (which scales with channel-pair count). So this arm tests two things at
+# once by construction (attention mechanism AND a real capacity reduction) —
+# stated explicitly rather than treated as a clean single-variable test of
+# "attention type" alone.
+#
+# No distill block: architecture-only comparison, GT-only, matching
+# m_dehaze_baseline.yaml's own scope exactly.
+
+experiment: m_dehaze_eca
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+  # THE ONLY DIFFERENCE FROM m_dehaze_baseline.yaml.
+  attn_type: eca
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  mixed_task: true
+  tasks:
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+      list:   reports/dehaze_train_list.txt
+  num_workers: 8
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 60000
+  warmup_iters: 2000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 2000
+  ckpt_every: 2000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+eval:
+  harness: src/eval/evaluate.py
+  val_task: dehaze
+  val_root: test/dehaze/demo
+  test_sets: [dehaze_demo_heldout]

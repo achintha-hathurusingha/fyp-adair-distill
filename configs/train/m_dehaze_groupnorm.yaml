@@ -1,0 +1,77 @@
+# M-DEHAZE-GROUPNORM — student_arch experiment (reports/student_arch/findings.md).
+#
+# IDENTICAL to m_dehaze_baseline.yaml except ONE arch key: norm_type
+# layernorm2d -> groupnorm. full_res_norm_type stays affine_clamp,
+# unchanged — this tests only the deeper-stage norm choice, the same axis
+# student_sweep.md's own N-A/N-B/N-C/N-E family already tested, adding N-G.
+#
+# WHY. NAFNet block ablation literature found GroupNorm performs comparably
+# to LayerNorm2d, not dramatically better or worse. That is a QUALITY
+# question, not the NPU-latency question N-A through N-B answered — GroupNorm
+# computes mean+var same as LayerNorm2d, so it is not expected to win on
+# on-device cycles (same Div/Sqrt-on-integer-pipeline cost class). Params are
+# identical to the baseline (7,371,923 — both are per-channel-affine-only),
+# so any PSNR delta here is a training-dynamics effect, not a capacity one.
+#
+# No distill block: architecture-only comparison, GT-only, matching
+# m_dehaze_baseline.yaml's own scope exactly.
+
+experiment: m_dehaze_groupnorm
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  # THE ONLY DIFFERENCE FROM m_dehaze_baseline.yaml.
+  norm_type: groupnorm
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  mixed_task: true
+  tasks:
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+      list:   reports/dehaze_train_list.txt
+  num_workers: 8
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 60000
+  warmup_iters: 2000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 2000
+  ckpt_every: 2000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+eval:
+  harness: src/eval/evaluate.py
+  val_task: dehaze
+  val_root: test/dehaze/demo
+  test_sets: [dehaze_demo_heldout]

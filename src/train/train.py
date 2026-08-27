@@ -92,6 +92,22 @@ ARMS: dict[str, dict] = {
                              "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
                     "config": "configs/train/m_dehaze_kd.yaml",
                     "desc": "M on dehaze, GT + response KD from AdaIR (gap demo)"},
+    # student_arch experiment (reports/student_arch/findings.md): architecture
+    # variants against M-DEHAZE's own already-measured GT-only baseline
+    # (32.8898dB, 3-seed mean) -- no teacher, no distill block, one arch key
+    # changed each. "norm" here must match the YAML's `arch:` section
+    # key-for-key or _apply_yaml_overrides's drift guard raises.
+    "M-DEHAZE-ECA": {"norm": {"norm_type": "layernorm2d",
+                              "full_res_norm_type": "affine_clamp", "clamp_bound": 8.0,
+                              "enc_clamp_stages": [3], "deep_clamp_bound": 32.0,
+                              "attn_type": "eca"},
+                     "config": "configs/train/m_dehaze_eca.yaml",
+                     "desc": "M on dehaze, GT only, SCA -> ECA channel attention"},
+    "M-DEHAZE-GROUPNORM": {"norm": {"norm_type": "groupnorm",
+                                    "full_res_norm_type": "affine_clamp", "clamp_bound": 8.0,
+                                    "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+                           "config": "configs/train/m_dehaze_groupnorm.yaml",
+                           "desc": "M on dehaze, GT only, LayerNorm2d -> GroupNorm"},
     # Third arm of the KD ablation: response term PLUS a frequency-domain term.
     # Differs from M-DEHAZE-KD by exactly two config keys.
     "M-DEHAZE-KD-FREQ": {"norm": {"norm_type": "layernorm2d",
@@ -163,7 +179,8 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "M-DEHAZE": W16_SIDD, "M-DEHAZE-KD": W16_SIDD,
                 "M-DERAIN": W16_SIDD, "M-DERAIN-KD": W16_SIDD,
                 "M-DEHAZE-KD-FREQ": W16_SIDD, "M-DEHAZE-KD-FEAT": W16_SIDD,
-                "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD}
+                "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD,
+                "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:
