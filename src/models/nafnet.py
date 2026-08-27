@@ -13,6 +13,8 @@ export-critical gate op set (see gate.py).
 """
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -31,6 +33,45 @@ class SimpleGate(nn.Module):
         return x1 * x2
 
 
+class ECA(nn.Module):
+    """Efficient Channel Attention (Wang et al., CVPR 2020) — student_arch
+    experiment, drop-in replacement for NAFNet's SCA (see plan.md).
+
+    Same interface as SCA's `nn.Sequential(AdaptiveAvgPool2d(1), Conv2d(...))`
+    — takes the gated feature map, returns a (B,C,1,1) per-channel weight to
+    multiply back in, so `NAFBlock.forward()`'s `x * self.sca(x)` line does
+    not change at all regardless of which attention variant is selected.
+
+    Differs from SCA in two ways, both deliberate per the literature this
+    experiment is testing: a 1D conv across channels (not a 1x1 conv, which
+    only reweights per-channel with no cross-channel interaction) and a
+    sigmoid (NAFNet's SCA has none — "nonlinear activation free" is the
+    point of NAFNet's own design; ECA reintroduces one, which is exactly
+    what the ablation is checking the cost/benefit of).
+
+    Kernel size follows ECA-Net's own adaptive formula (odd, near
+    log2(channels)) rather than a fixed constant, so it scales sensibly
+    across this project's channel range (16 at the shallowest encoder stage
+    to 256 at the middle blocks, width=16 family).
+    """
+
+    def __init__(self, channels: int, gamma: int = 2, b: int = 1) -> None:
+        super().__init__()
+        t = int(abs((math.log2(channels) + b) / gamma))
+        k = t if t % 2 else t + 1
+        k = max(k, 3)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=k // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = self.pool(x)                          # (B,C,1,1)
+        y = y.squeeze(-1).transpose(-1, -2)        # (B,1,C)
+        y = self.conv(y)
+        y = self.sigmoid(y)
+        return y.transpose(-1, -2).unsqueeze(-1)   # (B,C,1,1)
+
+
 class NAFBlock(nn.Module):
     """NAFNet residual block: gated depthwise conv + simplified channel attn.
 
@@ -39,10 +80,14 @@ class NAFBlock(nn.Module):
         dw_expand: depthwise expansion factor.
         ffn_expand: feed-forward expansion factor.
         norm_type: normalisation variant (see :mod:`src.models.norms`).
+        attn_type: channel-attention variant — ``"sca"`` (NAFNet's own,
+            default, no activation) or ``"eca"`` (student_arch experiment,
+            see :class:`ECA`).
     """
 
     def __init__(self, c: int, dw_expand: int = 2, ffn_expand: int = 2,
                  norm_type: str = "layernorm2d",
+                 attn_type: str = "sca",
                  clamp_bound: float | None = None,
                  deep_clamp_bound: float | None = None) -> None:
         super().__init__()
@@ -52,10 +97,15 @@ class NAFBlock(nn.Module):
         self.conv1 = nn.Conv2d(c, dw, 1)
         self.conv2 = nn.Conv2d(dw, dw, 3, padding=1, groups=dw)
         self.sg = SimpleGate()
-        self.sca = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(dw // 2, dw // 2, 1),
-        )
+        if attn_type == "sca":
+            self.sca = nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),
+                nn.Conv2d(dw // 2, dw // 2, 1),
+            )
+        elif attn_type == "eca":
+            self.sca = ECA(dw // 2)
+        else:
+            raise ValueError(f"Unknown attn_type {attn_type!r}. Supported: 'sca', 'eca'")
         self.conv3 = nn.Conv2d(dw // 2, c, 1)
 
         self.norm2 = build_norm(norm_type, c, clamp_bound=clamp_bound,
@@ -108,11 +158,13 @@ class NAFNet(nn.Module):
                  enc_blk_nums: list[int] | None = None, middle_blk_num: int = 12,
                  dec_blk_nums: list[int] | None = None, *, use_gate: bool = False,
                  gate_reduction: int = 4, norm_type: str = "layernorm2d",
+                 attn_type: str = "sca",
                  full_res_norm_type: str | None = None,
                  clamp_bound: float | None = None,
                  enc_clamp_stages: list[int] | None = None,
                  deep_clamp_bound: float | None = None) -> None:
         super().__init__()
+        self.attn_type = attn_type
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
         dec_blk_nums = dec_blk_nums or [2, 2, 2, 2]
         if len(enc_blk_nums) != len(dec_blk_nums):
@@ -160,14 +212,16 @@ class NAFNet(nn.Module):
         for i, n in enumerate(enc_blk_nums):
             nt = stage_norm(i, n_stages, decoder=False)
             self.encoders.append(nn.Sequential(
-                *[NAFBlock(chan, norm_type=nt, clamp_bound=clamp_bound,
+                *[NAFBlock(chan, norm_type=nt, attn_type=attn_type,
+                           clamp_bound=clamp_bound,
                            deep_clamp_bound=deep_clamp_bound)
                   for _ in range(n)]))
             self.downs.append(nn.Conv2d(chan, 2 * chan, 2, stride=2))
             chan *= 2
 
         self.middle_blks = nn.Sequential(
-            *[NAFBlock(chan, norm_type=norm_type, clamp_bound=clamp_bound,
+            *[NAFBlock(chan, norm_type=norm_type, attn_type=attn_type,
+                       clamp_bound=clamp_bound,
                        deep_clamp_bound=deep_clamp_bound)
               for _ in range(middle_blk_num)])
 
@@ -179,7 +233,8 @@ class NAFNet(nn.Module):
             ))
             chan //= 2
             self.decoders.append(nn.Sequential(
-                *[NAFBlock(chan, norm_type=nt, clamp_bound=clamp_bound,
+                *[NAFBlock(chan, norm_type=nt, attn_type=attn_type,
+                           clamp_bound=clamp_bound,
                            deep_clamp_bound=deep_clamp_bound)
                   for _ in range(n)]))
 
@@ -220,10 +275,12 @@ class NAFNet(nn.Module):
 
 
 def build_nafnet(cfg: dict, *, use_gate: bool = False,
-                 norm_type: str | None = None) -> NAFNet:
+                 norm_type: str | None = None,
+                 attn_type: str | None = None) -> NAFNet:
     """Construct a :class:`NAFNet` from a model-config dict (see configs/model).
 
-    ``norm_type`` overrides the config value, for sweeping variants.
+    ``norm_type``/``attn_type`` override the config value, for sweeping
+    variants (student_arch experiment — see reports/student_arch/).
     """
     gate_cfg = cfg.get("gate", {})
     return NAFNet(
@@ -235,6 +292,7 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
         use_gate=use_gate or gate_cfg.get("enabled", False),
         gate_reduction=gate_cfg.get("reduction", 4),
         norm_type=norm_type or cfg.get("norm_type", "layernorm2d"),
+        attn_type=attn_type or cfg.get("attn_type", "sca"),
         full_res_norm_type=cfg.get("full_res_norm_type"),
         enc_clamp_stages=cfg.get("enc_clamp_stages"),
         deep_clamp_bound=cfg.get("deep_clamp_bound"),

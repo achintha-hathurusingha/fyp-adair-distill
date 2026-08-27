@@ -16,6 +16,15 @@ exported, quantized and profiled untrained; only the survivors need training.
 | N-E  | ``affine``             | none       | fold-able     | yes      |
 | N-C  | ``identity``           | none       | zero          | yes      |
 | N-B  | ``batchnorm``          | running    | fold-able     | yes      |
+| N-G  | ``groupnorm``          | mean+var   | many          | yes      |
+
+N-G (kd_feature/student_arch experiment, not the INT8 latency sweep): tests
+whether grouped-channel statistics change TRAINING QUALITY, not latency —
+GroupNorm computes mean+var same as LayerNorm2d, so it is NOT expected to
+beat LayerNorm2d on NPU cycles (same Div/Sqrt-on-integer-pipeline cost
+class). Literature ablation (NAFNet block variant study) found it performs
+comparably to LayerNorm2d, not dramatically better or worse — the point of
+testing it here is quality, not the latency story N-A through N-B tell.
 """
 from __future__ import annotations
 
@@ -24,7 +33,7 @@ from torch import nn
 
 #: Every supported ``norm_type``. Unknown values raise (rule 9).
 NORM_TYPES = ("layernorm2d", "layernorm2d_rsqrt", "affine", "affine_clamp",
-              "layernorm2d_clamp", "identity", "batchnorm")
+              "layernorm2d_clamp", "identity", "batchnorm", "groupnorm")
 
 #: Magnitude bound for :class:`LayerNorm2dClamp` on the deep encoder stages.
 #: From measurement: during the F9 divergence — the single worst activation
@@ -135,6 +144,29 @@ class AffineNorm2d(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x * self.weight[None, :, None, None] + self.bias[None, :, None, None]
+
+
+class GroupNorm2d(nn.Module):
+    """N-G: standard GroupNorm, num_groups fixed at 8.
+
+    8 divides every channel count this project's student architectures
+    actually use (width doubles each stage: 16/32/64/128/256 for the
+    width=16 family) — chosen for that, not tuned. Raises rather than
+    silently falling back if a future config's channel count isn't
+    divisible, since a wrong group count changes what's being normalised
+    without any other symptom.
+    """
+
+    def __init__(self, channels: int, eps: float = 1e-6, num_groups: int = 8) -> None:
+        super().__init__()
+        if channels % num_groups != 0:
+            raise ValueError(
+                f"GroupNorm2d: channels={channels} not divisible by "
+                f"num_groups={num_groups}")
+        self.gn = nn.GroupNorm(num_groups, channels, eps=eps, affine=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.gn(x)
 
 
 def record_clamp_engagement(module: nn.Module, x: torch.Tensor) -> None:
@@ -297,6 +329,8 @@ def build_norm(norm_type: str, channels: int, eps: float = 1e-6,
         return LayerNorm2dClamp(channels, eps, bound=deep_clamp_bound)
     if norm_type == "identity":
         return IdentityNorm2d(channels)
+    if norm_type == "groupnorm":
+        return GroupNorm2d(channels, eps)
     if norm_type == "batchnorm":
         # N-B: latency datapoint only. BatchNorm folds to zero inference ops so
         # it will look excellent, but it is NOT expected to win on quality:
