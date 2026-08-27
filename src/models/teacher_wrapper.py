@@ -9,9 +9,12 @@ Guarantees enforced here, because each failure is silent and catastrophic:
   training mode produces plausible-but-wrong outputs (BatchNorm/dropout drift)
   with no error
 
-Explicitly **out of scope for Phase 01**: feature-extraction hooks into AdaIR's
-internals, adapters/projectors, and any distillation plumbing. This class does
-inference and nothing else.
+Explicitly **out of scope for Phase 01**: adapters/projectors and any
+distillation plumbing. This class does inference, plus (as of the kd_feature
+experiment, see reports/kd_feature/plan.md) exposing one specific internal
+tensor — ``latent_pre`` — via a non-invasive forward hook. Nothing else.
+``forward()``'s existing contract is unchanged; ``forward_with_latent`` is
+additive only, so kd_freq and the plain response-KD path are untouched.
 """
 from __future__ import annotations
 
@@ -129,6 +132,52 @@ class FrozenTeacher(nn.Module):
             raise ValueError(
                 f"teacher output {tuple(out.shape)} != input {tuple(x.shape)}")
         return out
+
+    @torch.no_grad()
+    def forward_with_latent(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Restore a batch AND return AdaIR's bottleneck tensor, ``latent_pre``.
+
+        ``latent_pre`` is ``self.net.latent``'s output — the same tensor
+        teacher-experiments/test05_5 calls ``latent_pre`` (``net/model.py:441``,
+        captured *before* ``self.fre1``'s frequency modulation is applied).
+        TEST05.5's causal audit found this representation, not the frequency
+        pathway, is the well-supported distillation signal — see
+        reports/kd_feature/plan.md.
+
+        Captured via a forward hook on the real submodule (never a forward-
+        pass reimplementation — the safe pattern established in
+        teacher-experiments/test18, after an earlier reimplementation attempt
+        there called methods that don't exist on the real module). The hook
+        is registered and removed within this single call, so it never
+        persists onto a model shared with plain ``forward()`` calls
+        elsewhere in the trainer.
+
+        Returns:
+            ``(restored_output, latent_pre)`` — shapes ``(B, 3, H, W)`` and
+            ``(B, 384, H/8, W/8)`` for AdaIR's default ``dim=48``.
+
+        Raises:
+            RuntimeError: if the hook never fires — would mean
+                ``self.net.latent`` was not called during this forward, which
+                should be impossible for AdaIR's own architecture and would
+                indicate a wrong model class or a broken checkpoint load.
+        """
+        captured: dict[str, torch.Tensor] = {}
+
+        def _hook(module, inputs, output):
+            captured["latent_pre"] = output
+
+        handle = self.net.latent.register_forward_hook(_hook)
+        try:
+            out = self.forward(x)
+        finally:
+            handle.remove()
+
+        if "latent_pre" not in captured:
+            raise RuntimeError(
+                "forward_with_latent: hook on self.net.latent did not fire — "
+                "latent_pre was not captured")
+        return out, captured["latent_pre"]
 
     @torch.no_grad()
     def forward_tiled(self, x: torch.Tensor, *, tile: int = 256,
