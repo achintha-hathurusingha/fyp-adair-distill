@@ -123,6 +123,13 @@ def grad_norm(model: nn.Module) -> float:
 class Trainer:
     """Fixed-iteration trainer with resumable state and diagnostic logging."""
 
+    def _capture_student_middle(self, _module, _inp, out: torch.Tensor) -> None:
+        """Forward hook on ``model.middle_blks``, capturing its output for the
+        feature-KD loss. Registered only when ``feat_weight > 0`` (see
+        ``__init__``), so this never runs — and never costs anything — for
+        any existing baseline or kd_freq config."""
+        self._student_middle_capture = out
+
     def __init__(self, model: nn.Module, loader, cfg: dict, run_dir: Path, *,
                  device: str = "cuda", val_root: Path | None = None) -> None:
         self.model = model.to(device)
@@ -175,6 +182,52 @@ class Trainer:
             self.log.info(f"teacher: {teacher_path.name} "
                           f"(frozen, eval) | kd weight {self.kd_weight}")
 
+        # Feature-level distillation on the teacher's internal `latent_pre`
+        # bottleneck, not final-output pixels (kd_feature experiment — see
+        # reports/kd_feature/plan.md). Zero weight = absent, same discipline
+        # as freq_weight; every existing baseline/kd_freq config leaves this
+        # unset and is therefore byte-identical to before this was added.
+        self.feat_weight = float(dcfg.get("feat_weight", 0.0))
+        self._feat_last = 0.0
+        self.adapter = None
+        self._student_middle_capture: torch.Tensor | None = None
+        if self.feat_weight > 0:
+            if teacher_path is None:
+                raise ValueError(
+                    "distill.feat_weight is set without a teacher; the "
+                    "feature term compares against the TEACHER's latent_pre "
+                    "and has nothing to compare to without one.")
+            from src.models.feature_adapter import FeatureAdapter
+            # Architecture lives under cfg["model"] in the resolved config
+            # (build_config() in train.py merges geometry + norm there),
+            # NOT cfg["arch"] — that key only exists in the raw per-arm YAML
+            # before _apply_yaml_overrides folds it in.
+            model_cfg = cfg.get("model", {})
+            width = model_cfg.get("width")
+            enc_blk_nums = model_cfg.get("enc_blk_nums")
+            if not width or not enc_blk_nums:
+                raise ValueError(
+                    "distill.feat_weight requires model.width and "
+                    "model.enc_blk_nums to compute the student's middle_blks "
+                    "channel count and downsample depth.")
+            student_channels = width * (2 ** len(enc_blk_nums))
+            student_downsamples = len(enc_blk_nums)
+            # AdaIR's fixed, released architecture: dim=48, 3 downsamples to
+            # `self.latent` — not derived from config, because the teacher's
+            # architecture is frozen and never varies across arms.
+            teacher_channels, teacher_downsamples = 384, 3
+            scale_factor = (2 ** student_downsamples) / (2 ** teacher_downsamples)
+            self.adapter = FeatureAdapter(
+                in_channels=student_channels, out_channels=teacher_channels,
+                scale_factor=scale_factor).to(device)
+            self._middle_hook_handle = self.model.middle_blks.register_forward_hook(
+                self._capture_student_middle)
+            self.log.info(
+                f"feature KD: student middle_blks {student_channels}ch "
+                f"@ 1/{2**student_downsamples} -> teacher latent_pre "
+                f"{teacher_channels}ch @ 1/{2**teacher_downsamples} "
+                f"(scale_factor={scale_factor}) | feat weight {self.feat_weight}")
+
         # Optional MLflow logging -- best-effort, see src/utils/tracking.py for
         # why every call there is wrapped and can never fail a training run.
         # git_commit.txt / seed.txt already exist: create_run_dir() writes them
@@ -212,6 +265,14 @@ class Trainer:
             self.log.info(
                 f"residual scales in own group: {len(residual)} params, "
                 f"weight_decay {res_wd} (rest: {wd})")
+        if self.adapter is not None:
+            # The adapter is trained jointly with the student via the feature
+            # KD loss and is training-time only — never part of the exported
+            # student graph (see src/models/feature_adapter.py), so it needs
+            # to be in the optimizer but nowhere else downstream of this.
+            adapter_group = {"params": self.adapter.parameters(), "weight_decay": wd}
+            params = (params + [adapter_group]) if isinstance(params, list) \
+                else [{"params": params, "weight_decay": wd}, adapter_group]
         self.optimizer = torch.optim.AdamW(
             params,
             lr=opt_cfg.get("lr", 1e-3),
@@ -495,7 +556,14 @@ class Trainer:
                         # quantity anyway, so computing it at full precision
                         # costs only throughput.
                         with torch.no_grad(), torch.autocast("cuda", enabled=False):
-                            soft = self.teacher(degraded.float())
+                            if self.adapter is not None:
+                                # Single teacher pass produces BOTH the
+                                # response target and latent_pre — no second
+                                # forward needed for the feature term.
+                                soft, teacher_latent = self.teacher.forward_with_latent(
+                                    degraded.float())
+                            else:
+                                soft = self.teacher(degraded.float())
                         kd = self.criterion(pred.float(), soft.float())
                         loss = loss + self.kd_weight * kd
                         self._kd_last = float(kd)
@@ -507,6 +575,34 @@ class Trainer:
                                                    mode=self.freq_mode)
                             loss = loss + self.freq_weight * fq
                             self._freq_last = float(fq)
+                        if self.adapter is not None:
+                            # Feature-level KD on the teacher's `latent_pre`
+                            # bottleneck (kd_feature experiment, see
+                            # reports/kd_feature/plan.md), not final-output
+                            # pixels — TEST05.5 (teacher-experiments) found
+                            # this representation, not the frequency pathway,
+                            # is the well-supported distillation signal.
+                            # `_student_middle_capture` was written by the
+                            # forward hook during `self.model(degraded)`
+                            # above, inside the SAME bfloat16 autocast region
+                            # as `pred` — cast to float32 here to compare
+                            # against the teacher's fp32 latent_pre, the same
+                            # precision-matching pattern as the response and
+                            # frequency terms.
+                            if self._student_middle_capture is None:
+                                raise RuntimeError(
+                                    "feat_weight > 0 but the middle_blks hook "
+                                    "never fired this step — the student "
+                                    "forward pass did not call middle_blks")
+                            with torch.autocast("cuda", enabled=False):
+                                adapted = self.adapter.match_target(
+                                    self._student_middle_capture.float(),
+                                    teacher_latent.float())
+                                feat = torch.abs(
+                                    adapted - teacher_latent.float()).mean()
+                            loss = loss + self.feat_weight * feat
+                            self._feat_last = float(feat)
+                            self._student_middle_capture = None
 
                 # Divide so accumulated gradients AVERAGE over the effective
                 # batch rather than summing — otherwise the effective learning
@@ -610,6 +706,11 @@ class Trainer:
                         "elapsed_s": time.time() - t0,
                         **metrics,
                         **{f"act_{k}": v for k, v in acts.items()},
+                        # Raw (unweighted) feature-KD term — logged so its
+                        # scale relative to the pixel/response terms can
+                        # actually be checked, rather than only seeing the
+                        # combined `loss` and guessing which term dominates.
+                        **({"feat_last": self._feat_last} if self.feat_weight > 0 else {}),
                     }
                     self.state.history.append(row)
                     self.tracker.log_metrics(row, step=it)
@@ -617,7 +718,8 @@ class Trainer:
                         f"it {it:6d}  loss {row['loss']:.5f}  psnr {metrics['psnr']:.3f}  "
                         f"ssim {metrics['ssim']:.4f}  gnorm {gn:.3f}  "
                         f"maxgn {max_gnorm:.3f}  "
-                        f"clip {clip_hits}/{steps_since} ({row['clip_rate']:.1%})  "
+                        + (f"feat {row['feat_last']:.5f}  " if "feat_last" in row else "")
+                        + f"clip {clip_hits}/{steps_since} ({row['clip_rate']:.1%})  "
                         f"skip {nonfinite_skips}  "
                         + (f"clampeng {row['clamp_engage_rate']:.2%} "
                            f"premax {row['clamp_max_preclamp']:.4g}  "

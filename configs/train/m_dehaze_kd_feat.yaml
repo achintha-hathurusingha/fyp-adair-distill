@@ -1,0 +1,123 @@
+# M-DEHAZE-KD-FEAT — response KD plus a feature-level term on the teacher's
+# internal latent_pre bottleneck. See reports/kd_feature/plan.md.
+#
+# IDENTICAL to m_dehaze_kd.yaml except one added key in `distill` (feat_weight).
+# Same architecture, same 4,000-image seeded subset, same schedule, same seed,
+# same optimiser, same held-out set, same teacher checkpoint — the point is
+# the SAME discipline kd_freq itself used: one added term over the response-KD
+# baseline, so any delta is attributable to that one term and nothing else.
+#
+# METHOD:
+#
+#     loss = Charbonnier(student, ground_truth)
+#          + kd_weight   * Charbonnier(student, teacher(same_input))
+#          + feat_weight * L1(adapter(student.middle_blks), teacher.latent_pre)
+#
+# WHY THIS INSTEAD OF (OR ALONGSIDE) kd_freq. kd_freq's own early result
+# (seed 0, matched iterations against m_dehaze_kd) oscillates in a ±0.1dB
+# band with no consistent sign through 18,000/60,000 iterations — a real,
+# not-yet-conclusive null. A literature review found a concrete mechanism for
+# why: magnitude-mode spectral loss discards phase (most of an image's
+# structural content); complex-mode is, by Parseval's theorem, close to
+# mathematically redundant with the spatial Charbonnier term already present.
+# Neither mode of kd_freq's output-spectrum loss was ever likely to add much.
+#
+# This targets a different representation entirely: `latent_pre`
+# (`self.latent`'s output in AdaIR, `net/model.py:441`, captured BEFORE the
+# frequency-modulation module `self.fre1` runs). TEST05.5
+# (teacher-experiments, a prior causal audit) found latent_pre — not the
+# frequency pathway — is the well-supported distillation signal. kd_freq
+# targets final-output pixels, which is the part TEST05.5 later contradicted.
+# This targets the part TEST05.5 validated.
+#
+# ADAPTER. Teacher latent_pre is 384ch @ 1/8 resolution (AdaIR, dim=48, fixed,
+# released architecture); student middle_blks is 256ch @ 1/16 (this arch:
+# width=16, 4 downsamples). A 1x1 conv + bilinear upsample adapter
+# (src/models/feature_adapter.py) bridges the two — small (~99K params),
+# trained jointly with the student, and TRAINING-TIME ONLY: never part of the
+# exported student graph, same principle already established (and verified by
+# an export smoke test) for kd_freq's spectrum loss. Does not reopen F7's
+# export-gate problem.
+#
+# PHASE A (this config): plain L1 feature match. Deliberately the simplest
+# possible version — isolates "does feature-level distillation help at all"
+# before any wavelet/multi-scale refinement is added on top (Phase B, not yet
+# built). Same one-thing-at-a-time discipline kd_freq itself used relative to
+# plain response KD.
+#
+# feat_weight=0.01, NOT 1.0. Checked, not guessed: a --smoke 20 run at
+# weight=1.0 showed raw feat ~12.0 against a combined pixel+response loss of
+# ~0.15-0.3 (kd_freq's own smoke loss, same architecture, no feat term, was
+# 0.15) — i.e. latent_pre's raw L1 scale is 40-80x the pixel-space terms, an
+# artifact of comparing un-normalized transformer feature magnitudes against
+# normalized pixel values, not a meaningful "the feature term matters more"
+# signal. 0.01 brings feat's contribution (~0.12) back into the same order of
+# magnitude as the existing terms, matching kd_freq's own "small on purpose"
+# convention. Still untuned beyond this one scale-sanity check — a real sweep
+# is a later step, not this run.
+
+experiment: m_dehaze_kd_feat
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  mixed_task: true
+  tasks:
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+      list:   reports/dehaze_train_list.txt
+  num_workers: 8
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 60000
+  warmup_iters: 2000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 2000
+  ckpt_every: 2000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+# THE ONLY DIFFERENCE FROM m_dehaze_kd.yaml.
+distill:
+  teacher_task: dehaze
+  weight: 1.0
+  # FEATURE TERM. Scale-checked, not tuned — see note above.
+  feat_weight: 0.01
+
+eval:
+  harness: src/eval/evaluate.py
+  val_task: dehaze
+  val_root: test/dehaze/demo
+  test_sets: [dehaze_demo_heldout]

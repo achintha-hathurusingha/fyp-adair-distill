@@ -101,6 +101,21 @@ ARMS: dict[str, dict] = {
                                   "deep_clamp_bound": 32.0},
                          "config": "configs/train/m_dehaze_kd_freq.yaml",
                          "desc": "M on dehaze, GT + response KD + spectrum KD"},
+    # kd_feature experiment (reports/kd_feature/plan.md): response term PLUS
+    # a feature-level term on the teacher's internal `latent_pre` bottleneck,
+    # instead of kd_freq's final-output spectrum term. Motivated by kd_freq's
+    # own early result (near-zero, oscillating delta) and TEST05.5
+    # (teacher-experiments), which found latent_pre — not the frequency
+    # pathway — is the well-supported distillation signal. Phase A: plain L1
+    # feature match, isolated from kd_freq exactly like kd_freq isolated the
+    # frequency term from plain response KD.
+    "M-DEHAZE-KD-FEAT": {"norm": {"norm_type": "layernorm2d",
+                                  "full_res_norm_type": "affine_clamp",
+                                  "clamp_bound": 8.0,
+                                  "enc_clamp_stages": [3],
+                                  "deep_clamp_bound": 32.0},
+                         "config": "configs/train/m_dehaze_kd_feat.yaml",
+                         "desc": "M on dehaze, GT + response KD + latent_pre feature KD"},
     # Same methodology on derain, so the two tasks are directly comparable.
     # Much less gap available: the specialist comparison measured +0.25 dB on
     # derain against +1.6 dB on dehaze.
@@ -147,7 +162,7 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "B0-QA": W16_SIDD, "B0-FIXC": W16_SIDD, "B0V2": W16_SIDD,
                 "M-DEHAZE": W16_SIDD, "M-DEHAZE-KD": W16_SIDD,
                 "M-DERAIN": W16_SIDD, "M-DERAIN-KD": W16_SIDD,
-                "M-DEHAZE-KD-FREQ": W16_SIDD,
+                "M-DEHAZE-KD-FREQ": W16_SIDD, "M-DEHAZE-KD-FEAT": W16_SIDD,
                 "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD}
 
 
