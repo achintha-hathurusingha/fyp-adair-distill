@@ -103,3 +103,41 @@ in `reports/student_sweep.md`.
 `reports/report_demo_dehaze_kd_freq.md`, same format as
 `reports/report_demo_dehaze.md`, extending its table by one row plus the
 Phase 2 spectral-gap figure and, if reached, the Phase 3 sweep table.
+
+## Addendum — missed the taskset core-pinning fix (2026-08-28)
+
+Phase 1 was launched without the `taskset -c 0-7,12-31` wrapper that
+`scripts/run_b0_devon.sh` and `reports/devon_cpu_mitigation.md` established
+for exactly this machine: physical cores 4 and 5 (logical CPUs 8-11) are
+degraded (Raptor Lake voltage defect, confirmed in that report by isolating
+each physical core and finding 8,9 / 10,11 segfault reliably under load).
+
+Caught live at seed 0 / iteration ~14,000: `ps -o psr` showed the main
+training process scheduled on CPU 10 and 4 of 8 dataloader workers on CPU 8 —
+both bad cores, both actively loaded (74% and 60% in `mpstat`) at the moment
+of inspection. No crash had occurred yet, but the process was exposed to the
+documented segfault risk for the first ~14k iterations.
+
+**Fix applied without restarting**: `taskset -cp 0-7,12-31 <pid>` on the main
+process and all 8 live dataloader workers — affinity changes on a running
+process without killing it, so no progress was lost. Verified immediately
+after: all 9 processes rescheduled onto the healthy set.
+
+Seeds 1 and 2 were going to repeat the same mistake — the original 3-seed
+wrapper (`/tmp/run_kd_freq_3seed.sh`) has no taskset in it, and editing that
+file on disk does not affect its already-running `for` loop (bash has it
+fully parsed in memory). Replaced: killed only the wrapper shell (PID
+2777209 — a plain `kill`, not a process-group signal, so it did not touch the
+already-running, already-repinned seed-0 training process or its workers),
+then launched `/tmp/run_kd_freq_seeds12.sh`, which waits for seed 0's PID to
+exit before starting seeds 1 and 2, each under `taskset -c 0-7,12-31` from
+the start. Both scripts append to the same `/tmp/kd_freq_3seed.log`, so the
+run's log history stays a single continuous record.
+
+Turbo boost is also disabled machine-wide (`intel_pstate/no_turbo = 1`),
+which was a deliberate choice separate from this fix — not changed here.
+
+Lesson for the next experiment on this box: use `scripts/run_b0_devon.sh`
+(or wrap any direct `python -m src.train.train` invocation in
+`taskset -c 0-7,12-31`) from the start, rather than relying on catching this
+after the fact.
