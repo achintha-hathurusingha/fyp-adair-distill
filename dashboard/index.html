@@ -115,7 +115,12 @@
 
   <section>
     <h2>Training health</h2>
-    <div class="desc">Same live seeds, other signals — loss and SSIM should move with PSNR; gradient norm and clip rate are stability checks, not quality metrics.</div>
+    <div class="desc">Same three-way comparison as above, other signals — loss and SSIM should move with PSNR; gradient norm and clip rate are stability checks, not quality metrics.</div>
+    <div class="legend" style="margin:0 0 16px">
+      <span><i class="swatch" style="background:var(--accent)"></i>response + frequency KD (live)</span>
+      <span><i class="swatch" style="background:var(--response)"></i>response KD only</span>
+      <span><i class="swatch" style="background:var(--baseline)"></i>GT only</span>
+    </div>
     <div class="grid2">
       <div class="chart-card">
         <div class="chart-title">Loss</div>
@@ -243,7 +248,11 @@ function seriesFromHistory(history, key='psnr', scale=1){
   return history.map(h=>({x:h.iteration, y:h[key]*scale}));
 }
 
-function drawChart(canvas, seedSeriesList, refLines, xMax, opts={}){
+// `arms`: [{color, seeds: [[{x,y}], ...]}, ...] — each arm drawn in its own
+// color, every seed of that arm as its own line (so seed-to-seed spread is
+// visible, not just a mean). `refLines`: flat horizontal dashed lines only
+// (used for the frozen teacher — nothing else is a true constant).
+function drawChart(canvas, arms, refLines, xMax, opts={}){
   const decimals = opts.decimals ?? 2;
   const dpr = window.devicePixelRatio || 1;
   const cssH = canvas.height && canvas.getAttribute('height') ? Number(canvas.getAttribute('height')) : 320;
@@ -257,7 +266,7 @@ function drawChart(canvas, seedSeriesList, refLines, xMax, opts={}){
   const w = cssW-padL-padR, h = cssH-padT-padB;
 
   const allY = [];
-  seedSeriesList.forEach(s=>s.forEach(p=>{ if(Number.isFinite(p.y)) allY.push(p.y); }));
+  arms.forEach(a=>a.seeds.forEach(s=>s.forEach(p=>{ if(Number.isFinite(p.y)) allY.push(p.y); })));
   refLines.forEach(r=>{ if(r.y!==null && Number.isFinite(r.y)) allY.push(r.y); });
 
   if(allY.length===0){
@@ -287,7 +296,7 @@ function drawChart(canvas, seedSeriesList, refLines, xMax, opts={}){
     ctx.fillText(Math.round(val).toLocaleString(), X(val)-14, padT+h+20);
   }
 
-  // reference lines
+  // reference lines (teacher ceiling only)
   refLines.forEach(r=>{
     if(r.y===null) return;
     ctx.strokeStyle = r.color; ctx.setLineDash([5,4]); ctx.lineWidth=1.4;
@@ -295,44 +304,52 @@ function drawChart(canvas, seedSeriesList, refLines, xMax, opts={}){
     ctx.setLineDash([]);
   });
 
-  // seed series
-  const color = opts.color || '#5eead4';
-  seedSeriesList.forEach(pts=>{
-    if(pts.length===0) return;
-    ctx.strokeStyle = color; ctx.lineWidth=2; ctx.beginPath();
-    pts.forEach((p,i)=>{ const x=X(p.x), y=Y(p.y); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-    ctx.stroke();
-    const last = pts[pts.length-1];
-    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X(last.x), Y(last.y), 3.5, 0, 7); ctx.fill();
+  // arm trajectories — every seed of every arm, in that arm's color
+  arms.forEach(arm=>{
+    arm.seeds.forEach(pts=>{
+      if(pts.length===0) return;
+      ctx.strokeStyle = arm.color; ctx.lineWidth = arm.hero?2.4:1.6;
+      ctx.globalAlpha = arm.hero?1:0.85;
+      ctx.beginPath();
+      pts.forEach((p,i)=>{ const x=X(p.x), y=Y(p.y); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      if(arm.hero){
+        const last = pts[pts.length-1];
+        ctx.fillStyle = arm.color; ctx.beginPath(); ctx.arc(X(last.x), Y(last.y), 3.5, 0, 7); ctx.fill();
+      }
+    });
   });
 }
 
 let latestData = null;
 
+// Builds the shared 3-arm comparison (GT-only / response-KD / response+freq-KD)
+// for one metric key, so every chart can be tracked against the same two
+// completed baselines the live run is being judged against.
+function armsFor(data, key, scale=1){
+  const cs = getComputedStyle(document.documentElement);
+  return [
+    {color: cs.getPropertyValue('--baseline').trim(), hero:false,
+     seeds: data.arms.baseline.seeds.map(s=>seriesFromHistory(s.history,key,scale))},
+    {color: cs.getPropertyValue('--response').trim(), hero:false,
+     seeds: data.arms.response_kd.seeds.map(s=>seriesFromHistory(s.history,key,scale))},
+    {color: cs.getPropertyValue('--accent').trim(), hero:true,
+     seeds: data.arms.freq_kd.seeds.map(s=>seriesFromHistory(s.history,key,scale))},
+  ];
+}
+
 function renderAllCharts(data){
   const freq = data.arms.freq_kd;
   const xMax = freq.seeds[0]?.target_iters || 60000;
-  const cs = getComputedStyle(document.documentElement);
 
-  drawChart(document.getElementById('chart'),
-    freq.seeds.map(s=>seriesFromHistory(s.history,'psnr')),
-    [
-      {y:data.arms.baseline.mean_best_psnr, color:cs.getPropertyValue('--baseline')},
-      {y:data.arms.response_kd.mean_best_psnr, color:cs.getPropertyValue('--response')},
-      {y:data.teacher_psnr, color:TEACHER_LINE_COLOR},
-    ], xMax, {decimals:1});
+  drawChart(document.getElementById('chart'), armsFor(data,'psnr'),
+    [{y:data.teacher_psnr, color:TEACHER_LINE_COLOR}], xMax, {decimals:1});
 
-  drawChart(document.getElementById('chart-loss'),
-    freq.seeds.map(s=>seriesFromHistory(s.history,'loss')), [], xMax, {decimals:4});
-
-  drawChart(document.getElementById('chart-ssim'),
-    freq.seeds.map(s=>seriesFromHistory(s.history,'ssim')), [], xMax, {decimals:4, color:'#a78bfa'});
-
-  drawChart(document.getElementById('chart-gnorm'),
-    freq.seeds.map(s=>seriesFromHistory(s.history,'grad_norm')), [], xMax, {decimals:2, color:'#fbbf24'});
-
-  drawChart(document.getElementById('chart-clip'),
-    freq.seeds.map(s=>seriesFromHistory(s.history,'clip_rate',100)), [], xMax, {decimals:1, color:'#f87171'});
+  drawChart(document.getElementById('chart-loss'), armsFor(data,'loss'), [], xMax, {decimals:4});
+  drawChart(document.getElementById('chart-ssim'), armsFor(data,'ssim'), [], xMax, {decimals:4});
+  drawChart(document.getElementById('chart-gnorm'), armsFor(data,'grad_norm'), [], xMax, {decimals:2});
+  drawChart(document.getElementById('chart-clip'), armsFor(data,'clip_rate',100), [], xMax, {decimals:1});
 }
 
 async function tick(){
