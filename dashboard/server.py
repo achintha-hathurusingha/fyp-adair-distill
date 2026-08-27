@@ -200,6 +200,11 @@ class Handler(BaseHTTPRequestHandler):
             body = fp.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            # No caching — the page's own JS changes between edits with no
+            # versioned filename, so a cached copy silently keeps running old
+            # logic after a fix is deployed (this bit us: the axis-stability
+            # fix was live server-side but the browser kept the old page).
+            self.send_header("Cache-Control", "no-store, must-revalidate")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
