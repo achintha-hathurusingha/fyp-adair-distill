@@ -295,14 +295,27 @@ function drawChart(canvas, arms, refLines, xMax, opts={}){
   arms.forEach(a=>a.seeds.forEach(s=>s.forEach(p=>{ if(Number.isFinite(p.y)) allY.push(p.y); })));
   refLines.forEach(r=>{ if(r.y!==null && Number.isFinite(r.y)) allY.push(r.y); });
 
-  if(allY.length===0){
+  if(allY.length===0 && !opts.range){
     ctx.fillStyle = '#5c6478'; ctx.font='13px "IBM Plex Sans"';
     ctx.fillText('no data yet', padL, padT+h/2);
     return;
   }
-  let yMin = Math.min(...allY), yMax = Math.max(...allY);
-  const pad = (yMax-yMin)*0.1 || Math.abs(yMax*0.1) || 1;
-  yMin -= pad; yMax += pad;
+  // Stable axis range: start from a fixed, sensible default per chart
+  // (opts.range) and only stretch it if real data actually exceeds it —
+  // never shrink. A range recomputed fresh from only-currently-visible data
+  // every 5s poll makes the whole chart visibly "re-zoom" on every refresh,
+  // even when nothing meaningful changed (caught live: this was exactly
+  // what looked like the chart constantly jumping).
+  let yMin, yMax;
+  if(opts.range){
+    const [defMin, defMax] = opts.range;
+    yMin = allY.length ? Math.min(defMin, ...allY) : defMin;
+    yMax = allY.length ? Math.max(defMax, ...allY) : defMax;
+  } else {
+    yMin = Math.min(...allY); yMax = Math.max(...allY);
+    const pad = (yMax-yMin)*0.1 || Math.abs(yMax*0.1) || 1;
+    yMin -= pad; yMax += pad;
+  }
 
   const X = x => padL + (x/xMax)*w;
   const Y = y => padT + h - ((y-yMin)/(yMax-yMin))*h;
@@ -372,12 +385,12 @@ function renderAllCharts(data){
   const xMax = freq.seeds[0]?.target_iters || feat.seeds[0]?.target_iters || 60000;
 
   drawChart(document.getElementById('chart'), armsFor(data,'psnr'),
-    [{y:data.teacher_psnr, color:TEACHER_LINE_COLOR}], xMax, {decimals:1});
+    [{y:data.teacher_psnr, color:TEACHER_LINE_COLOR}], xMax, {decimals:1, range:[16,36]});
 
-  drawChart(document.getElementById('chart-loss'), armsFor(data,'loss'), [], xMax, {decimals:4});
-  drawChart(document.getElementById('chart-ssim'), armsFor(data,'ssim'), [], xMax, {decimals:4});
-  drawChart(document.getElementById('chart-gnorm'), armsFor(data,'grad_norm'), [], xMax, {decimals:2});
-  drawChart(document.getElementById('chart-clip'), armsFor(data,'clip_rate',100), [], xMax, {decimals:1});
+  drawChart(document.getElementById('chart-loss'), armsFor(data,'loss'), [], xMax, {decimals:4, range:[0,0.4]});
+  drawChart(document.getElementById('chart-ssim'), armsFor(data,'ssim'), [], xMax, {decimals:4, range:[0.5,1.0]});
+  drawChart(document.getElementById('chart-gnorm'), armsFor(data,'grad_norm'), [], xMax, {decimals:2, range:[0,6]});
+  drawChart(document.getElementById('chart-clip'), armsFor(data,'clip_rate',100), [], xMax, {decimals:1, range:[0,50]});
 }
 
 function armStatusText(arm, label){
