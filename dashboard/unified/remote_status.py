@@ -122,20 +122,54 @@ def _tail_log(path: Path, n: int = 40) -> list[str]:
         return []
 
 
+#: filename -> human-readable label for log section headers.
+LOG_LABELS = {
+    "kd_freq_3seed.log": "M-DEHAZE-KD-FREQ (stopped)",
+    "eca_devon.log": "M-DEHAZE-ECA (stopped)",
+    "kd_feat_devon.log": "M-DEHAZE-KD-FEAT",
+    "groupnorm_devon.log": "M-DEHAZE-GROUPNORM",
+    "kd_feat_resumed.log": "M-DEHAZE-KD-FEAT",
+    "qbits_arms.log": "orchestrator",
+}
+#: A log untouched this long is dead history, not something worth crowding
+#: the panel with -- exclude it unless excluding everything would leave the
+#: panel empty (then fall back to showing what exists rather than nothing).
+STALE_AFTER_S = 3600
+
+
 def _tail_logs(paths: list[Path], n: int = 40) -> list[str]:
     """Multiple log files (e.g. an orchestrating wrapper log plus the
-    actual training log it launches) tagged and concatenated, most-recent
-    file's tail last. A single log_path arg only sees the orchestrator's
-    START/DONE markers, not live training progress written to a different
-    file by the process it launches -- this is the fix for exactly that gap
-    (caught live: qbits' dashboard log panel looked frozen because it only
-    watched the wrapper log)."""
-    out: list[str] = []
+    actual training log it launches) tagged and concatenated, freshest
+    file last, labeled by arm rather than raw filename. Stale files
+    (untouched for over an hour -- a stopped arm, or an idle orchestrator
+    with nothing queued) are dropped so old history doesn't crowd out what
+    is actually happening now; if that leaves nothing, an explicit idle
+    message is returned instead of silently showing nothing at all.
+
+    Caught live twice: (1) a single log_path arg only sees an orchestrator's
+    START/DONE markers, not live progress written to a different file by
+    the process it launches -- multiple paths fixed that. (2) once an arm
+    stopped or moved host, its now-frozen log kept dominating the panel
+    with hours-old content -- staleness filtering fixes that."""
+    now = time.time()
+    fresh: list[tuple[Path, list[str]]] = []
+    stale: list[tuple[Path, list[str]]] = []
     for p in paths:
         tail = _tail_log(p, n)
-        if tail:
-            out.append(f"--- {p.name} ---")
-            out.extend(tail)
+        if not tail:
+            continue
+        age = now - p.stat().st_mtime if p.exists() else float("inf")
+        (fresh if age < STALE_AFTER_S else stale).append((p, tail))
+
+    chosen = fresh if fresh else stale
+    if not chosen:
+        return ["(no active experiment on this host)"]
+
+    out: list[str] = []
+    for p, tail in chosen:
+        label = LOG_LABELS.get(p.name, p.name)
+        out.append(f"--- {label} ---")
+        out.extend(tail)
     return out[-n:] if len(out) > n else out
 
 

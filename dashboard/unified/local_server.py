@@ -77,7 +77,17 @@ def _fetch_host(name: str, cfg: dict) -> dict:
 def build_status() -> dict:
     hosts_out = {}
     for name, cfg in HOSTS.items():
-        hosts_out[name] = _fetch_host(name, cfg)
+        status = _fetch_host(name, cfg)
+        # A host with no arms configured has nothing relevant to show, even
+        # if its log file still has old content sitting in it (the leftover
+        # orchestrator log from before everything moved off qbits was
+        # otherwise still showing hours-old "paused, sleeping..." lines --
+        # remote_status.py's own staleness filter can't catch this case
+        # since it only ever sees one log file and falls back to showing
+        # *something* rather than nothing).
+        if not cfg["arms"]:
+            status["log_tail"] = ["(no active experiment on this host)"]
+        hosts_out[name] = status
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "teacher_psnr": 34.5056,

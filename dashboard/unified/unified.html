@@ -65,6 +65,10 @@
   .logpanel{background:#080a0f; border:1px solid var(--border); border-radius:10px; padding:14px 16px; max-height:220px; overflow-y:auto}
   .logpanel .line{font-family:"IBM Plex Mono"; font-size:.76rem; color:var(--dim); white-space:pre-wrap; word-break:break-all}
   .logpanel .line.marker{color:var(--ink)}
+  .logpanel .line.section{color:var(--ink); font-weight:600; font-size:.72rem; text-transform:uppercase;
+    letter-spacing:.05em; margin-top:12px; padding-top:10px; border-top:1px solid var(--border)}
+  .logpanel .line.section:first-child{margin-top:0; padding-top:0; border-top:none}
+  .logpanel .line.idle{color:var(--dim2); font-style:italic}
   footer{color:var(--dim2); font-size:.78rem; text-align:center; margin-top:40px}
 </style>
 </head>
@@ -250,8 +254,11 @@ function renderLog(data){
     const lines = (h && h.log_tail) || [];
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
     el.innerHTML = lines.map(l=>{
+      const esc = l.replace(/</g,'&lt;');
+      if(/^--- .+ ---$/.test(l)) return `<div class="line section">${esc.replace(/^--- | ---$/g,'')}</div>`;
+      if(/^\(no active experiment/.test(l)) return `<div class="line idle">${esc}</div>`;
       const isMarker = /SEED \d (START|DONE)|ALL (SEEDS|ARMS) COMPLETE|START|DONE/.test(l);
-      return `<div class="line ${isMarker?'marker':''}">${l.replace(/</g,'&lt;')}</div>`;
+      return `<div class="line ${isMarker?'marker':''}">${esc}</div>`;
     }).join('');
     if(atBottom) el.scrollTop = el.scrollHeight;
     if(h && h.error){
