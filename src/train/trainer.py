@@ -132,16 +132,25 @@ class Trainer:
         self._student_middle_capture = out
 
     def __init__(self, model: nn.Module, loader, cfg: dict, run_dir: Path, *,
-                 device: str = "cuda", val_root: Path | None = None) -> None:
+                 device: str = "cuda", val_root: Path | None = None,
+                 val_tasks: dict[str, Path] | None = None) -> None:
         self.model = model.to(device)
         self.loader = loader
         self.cfg = cfg
         self.run_dir = Path(run_dir)
         self.device = device
         self.val_root = val_root
+        # Multi-task validation (kd_feature_multitask B0V2 eval-gap fix — see
+        # reports/kd_feature_multitask/plan.md, section 4): a {task: root}
+        # mapping, one held-out set PER task. Set only for a mixed_task run
+        # whose config actually asks for it (train.py); every existing
+        # single-task arm leaves this None and validate() takes the original
+        # single-val_root/val_task path below, unchanged.
+        self.val_tasks = val_tasks
         # Which task validation runs on. Defaults to denoise so B0-denoise
         # and B0-v2 are unchanged; a single-task run overrides it, because
         # validating a dehaze model on BSD68 measures nothing it trains for.
+        # Irrelevant when val_tasks is set (each task carries its own name).
         self.val_task = (cfg.get("eval") or {}).get("val_task", "denoise")
         self.log = get_logger("train", run_dir=run_dir)
 
@@ -470,14 +479,16 @@ class Trainer:
 
     @torch.no_grad()
     def validate(self) -> dict[str, float]:
-        """Evaluate EMA weights on BSD68 through the LOCKED harness.
+        """Evaluate EMA weights through the LOCKED harness.
 
-        Returns an empty dict when no ``val_root`` was supplied. Note that
-        validation always runs on the final iteration regardless of
-        ``val_every``, so this path is reachable in any run configured without
-        a validation set — it is warned about rather than allowed to raise deep
-        inside the training loop.
+        Returns an empty dict when neither ``val_tasks`` nor ``val_root`` was
+        supplied. Note that validation always runs on the final iteration
+        regardless of ``val_every``, so this path is reachable in any run
+        configured without a validation set — it is warned about rather than
+        allowed to raise deep inside the training loop.
         """
+        if self.val_tasks is not None:
+            return self._validate_multitask()
         if self.val_root is None:
             self.log.warning("no val_root configured — skipping validation")
             return {}
@@ -506,6 +517,60 @@ class Trainer:
                 results[f"ssim_s{sigma}"] = res.ssim
             results["psnr"] = sum(results[f"psnr_s{s}"] for s in (15, 25, 50)) / 3
             results["ssim"] = sum(results[f"ssim_s{s}"] for s in (15, 25, 50)) / 3
+            return results
+        finally:
+            self.ema.restore(self.model, backup)
+            self.model.train()
+
+    @torch.no_grad()
+    def _validate_multitask(self) -> dict[str, float]:
+        """Evaluate EMA weights on ALL configured tasks, one held-out set per
+        task (kd_feature_multitask — see reports/kd_feature_multitask/plan.md,
+        section 4: the B0V2 eval gap). Before this, a mixed_task run's
+        ``eval`` block never set ``val_task``, so ``validate()`` silently ran
+        the single-task denoise branch above against BSD68 only — the
+        completed B0V2 baseline (300k iters) has real denoise numbers and NO
+        dehaze/derain numbers at all.
+
+        ``psnr``/``ssim`` are the mean across tasks, so history.json keeps the
+        same shape (one scalar `best_psnr` to track) as every single-task run;
+        ``psnr_<task>``/``ssim_<task>`` carry the per-task breakdown that was
+        previously missing.
+        """
+        backup = self.ema.copy_to(self.model)
+        self.model.eval()
+        try:
+            results: dict[str, float] = {}
+            per_task_psnr, per_task_ssim = [], []
+            for task, root in self.val_tasks.items():
+                if task == "denoise":
+                    # Same 3-sigma sweep as the single-task branch, just
+                    # against this task's own root instead of self.val_root.
+                    sigma_psnr, sigma_ssim = [], []
+                    for sigma in (15, 25, 50):
+                        ds = build_dataset("denoise", root, sigma=sigma,
+                                           seed_mode="filename")
+                        res = evaluate(self.model, iter(ds), name=f"denoise_s{sigma}",
+                                       config=ADAIR_DEFAULT, device=self.device,
+                                       keep_per_image=False)
+                        results[f"psnr_denoise_s{sigma}"] = res.psnr
+                        results[f"ssim_denoise_s{sigma}"] = res.ssim
+                        sigma_psnr.append(res.psnr)
+                        sigma_ssim.append(res.ssim)
+                    task_psnr = sum(sigma_psnr) / len(sigma_psnr)
+                    task_ssim = sum(sigma_ssim) / len(sigma_ssim)
+                else:
+                    ds = build_dataset(task, root)
+                    res = evaluate(self.model, iter(ds), name=task,
+                                   config=ADAIR_DEFAULT, device=self.device,
+                                   keep_per_image=False)
+                    task_psnr, task_ssim = res.psnr, res.ssim
+                results[f"psnr_{task}"] = task_psnr
+                results[f"ssim_{task}"] = task_ssim
+                per_task_psnr.append(task_psnr)
+                per_task_ssim.append(task_ssim)
+            results["psnr"] = sum(per_task_psnr) / len(per_task_psnr)
+            results["ssim"] = sum(per_task_ssim) / len(per_task_ssim)
             return results
         finally:
             self.ema.restore(self.model, backup)

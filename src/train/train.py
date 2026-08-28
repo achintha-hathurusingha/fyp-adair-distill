@@ -372,20 +372,38 @@ def main() -> None:
     else:
         loader = build_train_loader([data_root / "Train" / "Denoise"], **common)
 
-    # Validation set from config, defaulting to BSD68 so every existing arm
-    # is unchanged. A single-task arm points this at its own held-out set.
-    val_rel = (cfg.get("eval") or {}).get("val_root")
-    val_root = (data_root / val_rel) if val_rel else (
-        data_root / "test" / "denoise" / "bsd68")
-    if not val_root.exists():
-        raise FileNotFoundError(
-            f"validation set not found: {val_root}. Set eval.val_root in the "
-            "config, or create it — a run with no validation produces no "
-            "convergence evidence.")
+    # Validation set(s) from config. A mixed_task run with eval.val_tasks set
+    # gets ONE held-out set PER task (kd_feature_multitask B0V2 eval-gap fix
+    # — see reports/kd_feature_multitask/plan.md, section 4); everything else
+    # keeps the original single val_root/val_task path, defaulting to BSD68
+    # so every existing single-task arm is unchanged.
+    eval_cfg = cfg.get("eval") or {}
+    val_root, val_tasks = None, None
+    if cfg["data"].get("mixed_task") and eval_cfg.get("val_tasks"):
+        val_tasks = {}
+        for task, rel in eval_cfg["val_tasks"].items():
+            root = data_root / rel
+            if not root.exists():
+                raise FileNotFoundError(
+                    f"validation set not found for task {task!r}: {root}. "
+                    "Fix eval.val_tasks, or create it — a mixed_task run "
+                    "missing even one task's held-out set silently produces "
+                    "no convergence evidence for that task (the exact gap "
+                    "this dict exists to close).")
+            val_tasks[task] = root
+    else:
+        val_rel = eval_cfg.get("val_root")
+        val_root = (data_root / val_rel) if val_rel else (
+            data_root / "test" / "denoise" / "bsd68")
+        if not val_root.exists():
+            raise FileNotFoundError(
+                f"validation set not found: {val_root}. Set eval.val_root in "
+                "the config, or create it — a run with no validation "
+                "produces no convergence evidence.")
 
     model = build_model(cfg)
     trainer = Trainer(model, loader, cfg, run_dir, device=args.device,
-                      val_root=val_root)
+                      val_root=val_root, val_tasks=val_tasks)
     if args.resume:
         trainer.load_checkpoint(Path(args.resume))
         # A resume reuses the run directory, so config.yaml and git_commit.txt
