@@ -160,6 +160,31 @@ ARMS: dict[str, dict] = {
                                  "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
                         "config": "configs/train/m_dehaze_kd_w20.yaml",
                         "desc": "M on dehaze, GT + response KD, weight=2.0"},
+    # kd_feature_multitask (reports/kd_feature_multitask/plan.md): kd_feat's
+    # validated dehaze-only feature-KD term (33.695dB, best PSNR, full 60k
+    # iters), extended to the REAL 3-degradation B0V2 protocol. Two-arm
+    # design isolating exactly one variable, degradation-conditioning,
+    # against the literature's catastrophic-interference prediction for the
+    # naive (control) version.
+    "B0V2-KD-FEAT": {"norm": {"norm_type": "layernorm2d",
+                              "full_res_norm_type": "affine_clamp",
+                              "clamp_bound": 8.0,
+                              "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+                     "config": "configs/train/b0v2_kd_feat.yaml",
+                     "desc": "B0V2 CONTROL: + response+feature KD from all_in_one "
+                             "teacher, no degradation-conditioning"},
+    "B0V2-KD-FEAT-COND": {"norm": {"norm_type": "layernorm2d",
+                                   "full_res_norm_type": "affine_clamp",
+                                   "clamp_bound": 8.0,
+                                   "enc_clamp_stages": [3], "deep_clamp_bound": 32.0,
+                                   # THE ONLY ARCHITECTURAL DIFFERENCE FROM
+                                   # B0V2-KD-FEAT. Must match the YAML's own
+                                   # arch.use_degradation_head key-for-key or
+                                   # _apply_yaml_overrides's drift guard raises.
+                                   "use_degradation_head": True},
+                          "config": "configs/train/b0v2_kd_feat_cond.yaml",
+                          "desc": "B0V2 TREATMENT: B0V2-KD-FEAT + DegradationHead/FiLM "
+                                  "conditioning (aux_weight=0.1)"},
 }
 
 #: w16_b8 — the config on which every norm variant is already profiled (arm S).
@@ -180,7 +205,8 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "M-DERAIN": W16_SIDD, "M-DERAIN-KD": W16_SIDD,
                 "M-DEHAZE-KD-FREQ": W16_SIDD, "M-DEHAZE-KD-FEAT": W16_SIDD,
                 "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD,
-                "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD}
+                "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD,
+                "B0V2-KD-FEAT": W16_SIDD, "B0V2-KD-FEAT-COND": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:

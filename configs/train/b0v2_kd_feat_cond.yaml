@@ -1,0 +1,89 @@
+# B0V2-KD-FEAT-COND — the TREATMENT arm for kd_feature_multitask (see
+# reports/kd_feature_multitask/plan.md). IDENTICAL to B0V2-KD-FEAT (the
+# control) except two added keys: `arch.use_degradation_head` and
+# `distill.aux_weight` — the DegradationHead + FiLM conditioning described in
+# plan.md section 3. Isolates exactly one variable: does explicit
+# degradation-awareness prevent the interference the literature predicts for
+# the naive (control) version, everything else held fixed.
+#
+# aux_weight=0.1, scale-checked (not guessed) the same way kd_feat's own
+# feat_weight was: a 10-step run at aux_weight=1.0 on this exact architecture
+# + real data + the all_in_one teacher (scripts/scale_check_aux_weight.py)
+# measured the raw cross-entropy term at ~1.04 (near ln(3)=1.10, chance,
+# expected early) against pixel/kd/feat*weight terms all in the 0.02-0.15
+# range -- roughly a 10x scale mismatch, the same order kd_feat's own note
+# found for its raw feature term. 0.1 brings the weighted aux contribution
+# (~0.10) into that same range.
+
+experiment: b0v2_kd_feat_cond
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+  # THE ONLY ARCHITECTURAL DIFFERENCE FROM B0V2-KD-FEAT.
+  use_degradation_head: true
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  sigma_range: [0.0, 55.0]
+  clean_prob: 0.05
+  mixed_task: true
+  tasks:
+    denoise: Train/Denoise
+    derain:  Train/Derain
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+  num_workers: 6
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 90000   # matches B0V2-KD-FEAT exactly -- see its own note
+  warmup_iters: 3000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 3000
+  ckpt_every: 3000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+distill:
+  teacher_task: all_in_one
+  weight: 1.0
+  feat_weight: 0.01
+  # THE ONLY LOSS DIFFERENCE FROM B0V2-KD-FEAT. See scale-check note above.
+  aux_weight: 0.1
+
+eval:
+  harness: src/eval/evaluate.py
+  val_tasks:
+    denoise: test/denoise/bsd68
+    derain:  test/derain/demo
+    dehaze:  test/dehaze/demo
+  test_sets: [bsd68, derain_demo, dehaze_demo]   # documentation only
