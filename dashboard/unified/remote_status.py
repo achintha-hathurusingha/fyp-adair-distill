@@ -122,13 +122,30 @@ def _tail_log(path: Path, n: int = 40) -> list[str]:
         return []
 
 
+def _tail_logs(paths: list[Path], n: int = 40) -> list[str]:
+    """Multiple log files (e.g. an orchestrating wrapper log plus the
+    actual training log it launches) tagged and concatenated, most-recent
+    file's tail last. A single log_path arg only sees the orchestrator's
+    START/DONE markers, not live training progress written to a different
+    file by the process it launches -- this is the fix for exactly that gap
+    (caught live: qbits' dashboard log panel looked frozen because it only
+    watched the wrapper log)."""
+    out: list[str] = []
+    for p in paths:
+        tail = _tail_log(p, n)
+        if tail:
+            out.append(f"--- {p.name} ---")
+            out.extend(tail)
+    return out[-n:] if len(out) > n else out
+
+
 def main():
     repo_root = Path(sys.argv[1])
-    log_path = Path(sys.argv[2])
+    log_paths = [Path(p) for p in sys.argv[2].split(",")]
     arm_names = sys.argv[3:]
     runs_root = repo_root / "runs"
 
-    log_tail = _tail_log(log_path)
+    log_tail = _tail_logs(log_paths)
     crash = any(re.search(r"Traceback|CUDA out of memory|nonfinite|NaN\b|Error", ln)
                 for ln in log_tail)
 

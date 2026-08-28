@@ -21,18 +21,21 @@ PORT = 8091
 STATIC_DIR = Path(__file__).parent
 SSH_KEY = r"C:\Users\User\Documents\FYP\Achintha"
 
-# host -> (user@host, repo_root on that host, log path on that host, [arms])
+# host -> (user@host, repo_root on that host, log paths on that host, [arms])
+# log_paths is a list because an orchestrating wrapper log (START/DONE
+# markers) and the actual per-arm training log it launches are different
+# files -- watching only the wrapper log makes live progress invisible.
 HOSTS = {
     "devon": {
         "target": "minura@192.248.10.68",
         "repo_root": "/home/minura/fyp-adair-distill",
-        "log_path": "/tmp/kd_freq_3seed.log",
+        "log_paths": ["/tmp/kd_freq_3seed.log"],
         "arms": ["M-DEHAZE", "M-DEHAZE-KD", "M-DEHAZE-KD-FREQ"],
     },
     "qbits": {
         "target": "minura@192.248.10.67",
         "repo_root": "/home/minura/fyp-adair-distill",
-        "log_path": "/home/minura/qbits_arms.log",
+        "log_paths": ["/home/minura/qbits_arms.log", "/home/minura/kd_feat_resumed.log"],
         "arms": ["M-DEHAZE-KD-FEAT", "M-DEHAZE-ECA", "M-DEHAZE-GROUPNORM"],
     },
 }
@@ -48,7 +51,7 @@ def _fetch_host(name: str, cfg: dict) -> dict:
     cmd = [
         "ssh", "-i", SSH_KEY, "-o", "ConnectTimeout=6",
         cfg["target"],
-        f"python3 {REMOTE_SCRIPT_PATH} {cfg['repo_root']} {cfg['log_path']} "
+        f"python3 {REMOTE_SCRIPT_PATH} {cfg['repo_root']} {','.join(cfg['log_paths'])} "
         + " ".join(cfg["arms"]),
     ]
     try:
