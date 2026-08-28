@@ -32,20 +32,31 @@ datasets:
   dehaze_sots_clean: test/dehaze/sots_clean    # 417 images, verified disjoint from OTS
   sots_outdoor:   dehaze/RESIDE/SOTS/outdoor   # 992 images, raw SOTS extraction
 
-# Released teacher checkpoint (AdaIR 3-degradation). Overridden by env var
-# ADAIR_CKPT. Left null until downloaded — teacher_wrapper raises if unset.
+# NOT CURRENTLY READ BY ANY CODE (found during kd_feature_multitask, see
+# reports/kd_feature_multitask/plan.md) -- kept only because ADAIR_CKPT/env
+# override machinery in src/utils/config.py still writes to it. The all-in-one
+# checkpoint a multi-task teacher actually needs is `teachers.all_in_one`
+# below instead, which DOES resolve through the live `teacher_checkpoint()`
+# path every other teacher lookup uses.
 adair_checkpoint: null
 
-# Root holding the released AdaIR SINGLE-DEGRADATION checkpoints. Null here
-# because it is machine-specific: set it in configs/paths.local.yaml (gitignored)
-# or via the ADAIR_WEIGHTS env var. Anything needing a teacher resolves through
-# `src.utils.config.teacher_checkpoint(task)` and raises with instructions if it
-# is unset, rather than carrying one machine's absolute path in tracked code.
+# Root holding the released AdaIR checkpoints (single-degradation AND the
+# all-in-one). Null here because it is machine-specific: set it in
+# configs/paths.local.yaml (gitignored) or via the ADAIR_WEIGHTS env var.
+# Anything needing a teacher resolves through
+# `src.utils.config.teacher_checkpoint(task)` and raises with instructions if
+# it is unset, rather than carrying one machine's absolute path in tracked
+# code.
 adair_weights_root: null
 
 # Filenames under adair_weights_root, one per task. These ARE portable — they
 # are the names the AdaIR authors released, not a property of any machine.
+# `all_in_one` is the same released 3-degradation checkpoint used throughout
+# teacher-experiments/ (TEST01-20) — the correct teacher for a multi-task
+# student (B0V2 and friends); the three single-degradation entries are only
+# right for a single-task student distilling on one degradation alone.
 teachers:
-  denoise: adair-single-denoise.ckpt
-  derain:  adair-single-derain.ckpt
-  dehaze:  adair-single-dehaze.ckpt
+  denoise:   adair-single-denoise.ckpt
+  derain:    adair-single-derain.ckpt
+  dehaze:    adair-single-dehaze.ckpt
+  all_in_one: adair3d.ckpt
