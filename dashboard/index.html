@@ -45,6 +45,34 @@
   .delta-val.neg { color: var(--bad); }
   #compare .note { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
 
+  #gpus { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 20px; }
+  @media (max-width: 980px) { #gpus { grid-template-columns: 1fr; } }
+  .gpu-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px;
+  }
+  .gpu-card .gpu-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .gpu-card .gpu-host { font-weight: 700; font-size: 13.5px; }
+  .gpu-card .gpu-name { color: var(--muted); font-size: 11px; }
+  .gpu-card .gpu-free-badge {
+    font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 20px;
+  }
+  .gpu-free-badge.roomy { background: rgba(51,193,122,0.15); color: var(--good); }
+  .gpu-free-badge.tight { background: rgba(224,184,63,0.15); color: var(--warn); }
+  .gpu-free-badge.full  { background: rgba(224,85,74,0.15); color: var(--bad); }
+  .vram-track {
+    height: 22px; background: #0c1120; border-radius: 5px; overflow: hidden;
+    position: relative; margin-bottom: 6px;
+  }
+  .vram-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #6ea8ff); }
+  .vram-label {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }
+  .gpu-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; }
+  .gpu-meta b { color: var(--text); font-variant-numeric: tabular-nums; }
+
   .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
   @media (max-width: 980px) { .cards { grid-template-columns: 1fr; } }
 
@@ -97,6 +125,7 @@
   <div id="hosts"></div>
 </header>
 <main>
+  <div id="gpus"></div>
   <div id="compare"></div>
   <div class="cards" id="cards"></div>
 </main>
@@ -119,6 +148,47 @@ function findArm(hosts, armName) {
     if (found) return found;
   }
   return null;
+}
+
+function renderGpus(hosts) {
+  const el = document.getElementById("gpus");
+  const order = ["devon", "qbits"];
+  el.innerHTML = order.map(name => {
+    const h = hosts[name];
+    if (!h) return "";
+    if (h.error) {
+      return `<div class="gpu-card"><div class="gpu-head"><span class="gpu-host">${name}</span>
+        <span class="gpu-free-badge full">unreachable</span></div>
+        <div style="color:var(--muted);font-size:12px">${esc(h.error)}</div></div>`;
+    }
+    const gpus = h.gpus || [];
+    if (!gpus.length || gpus[0].error) {
+      return `<div class="gpu-card"><div class="gpu-head"><span class="gpu-host">${name}</span>
+        <span class="gpu-free-badge full">no gpu data</span></div>
+        <div style="color:var(--muted);font-size:12px">${esc((gpus[0]||{}).error || "nvidia-smi unavailable")}</div></div>`;
+    }
+    return gpus.map(g => {
+      const usedPct = g.mem_used_mb / g.mem_total_mb * 100;
+      const freeGb = g.mem_free_mb / 1024;
+      const totalGb = g.mem_total_mb / 1024;
+      const badgeClass = freeGb > 8 ? "roomy" : freeGb > 3 ? "tight" : "full";
+      const nArms = (h.arms || []).length;
+      const workloadNote = nArms === 0
+        ? `<span style="color:var(--good)">idle — no arms tracked here</span>`
+        : `${nArms} arm${nArms>1?'s':''} running`;
+      return `<div class="gpu-card">
+        <div class="gpu-head">
+          <div><span class="gpu-host">${name}</span> <span class="gpu-name">${esc(g.name)} · ${g.temp_c}°C</span></div>
+          <span class="gpu-free-badge ${badgeClass}">${freeGb.toFixed(1)} GB free</span>
+        </div>
+        <div class="vram-track">
+          <div class="vram-fill" style="width:${usedPct}%"></div>
+          <div class="vram-label">${(g.mem_used_mb/1024).toFixed(1)} / ${totalGb.toFixed(1)} GB (${usedPct.toFixed(0)}%)</div>
+        </div>
+        <div class="gpu-meta"><span>util <b>${g.util_pct}%</b></span><span>${workloadNote}</span></div>
+      </div>`;
+    }).join("");
+  }).join("");
 }
 
 function renderCompare(hosts) {
@@ -218,6 +288,7 @@ async function tick() {
     return `<span class="host-pill ${up?'up':'down'}">${name} ${up?'●':'✕'}</span>`;
   }).join("");
 
+  renderGpus(hosts);
   renderCompare(hosts);
 
   const cardsEl = document.getElementById("cards");

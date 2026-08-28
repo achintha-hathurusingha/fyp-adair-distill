@@ -46,8 +46,9 @@ _cache = {"hosts": {}, "polled_at": 0}
 
 
 def _fetch_host(name: str, cfg: dict) -> dict:
-    if not cfg["arms"]:
-        return {"idle": True, "arms": []}
+    # Always poll, even with no arms configured -- GPU/VRAM status (used to
+    # judge free capacity for placing new workload, e.g. on idle qbits) is
+    # host-level, not tied to whether anything is running there.
     env = f"ARMS={','.join(cfg['arms'])}"
     cmd = [
         "ssh", "-i", SSH_KEY, "-o", "ConnectTimeout=6",

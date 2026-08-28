@@ -22,6 +22,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -29,6 +30,35 @@ RUNS_ROOT = os.environ.get("RUNS_ROOT", os.path.expanduser("~/fyp-adair-distill/
 ARMS = [a for a in os.environ.get("ARMS", "").split(",") if a]
 STALE_AFTER_S = 3600
 LOG_TAIL_LINES = 12
+
+
+def _gpu_status() -> list[dict]:
+    """Per-GPU VRAM/utilization on THIS host, independent of whether any arm
+    is configured here -- this is what lets qbits' free capacity be seen even
+    while it's idle, so a new workload can actually be placed on it instead
+    of guessing.
+    """
+    try:
+        out = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=index,name,memory.used,memory.total,memory.free,"
+             "utilization.gpu,temperature.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5)
+        if out.returncode != 0:
+            return [{"error": out.stderr.strip()[:300]}]
+        gpus = []
+        for line in out.stdout.strip().splitlines():
+            idx, name, used, total, free, util, temp = [p.strip() for p in line.split(",")]
+            gpus.append({
+                "index": int(idx), "name": name,
+                "mem_used_mb": int(used), "mem_total_mb": int(total),
+                "mem_free_mb": int(free), "util_pct": int(util),
+                "temp_c": int(temp),
+            })
+        return gpus
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return [{"error": f"{type(e).__name__}: {e}"}]
 
 
 def _latest_run_dir(out_root: str, arm: str) -> str | None:
@@ -88,6 +118,7 @@ def main() -> None:
     print(json.dumps({
         "hostname": os.uname().nodename if hasattr(os, "uname") else "unknown",
         "timestamp": time.time(),
+        "gpus": _gpu_status(),
         "arms": arms_out,
     }))
 
