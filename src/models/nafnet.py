@@ -159,12 +159,15 @@ class NAFNet(nn.Module):
                  dec_blk_nums: list[int] | None = None, *, use_gate: bool = False,
                  gate_reduction: int = 4, norm_type: str = "layernorm2d",
                  attn_type: str = "sca",
+                 use_degradation_head: bool = False,
                  full_res_norm_type: str | None = None,
                  clamp_bound: float | None = None,
                  enc_clamp_stages: list[int] | None = None,
                  deep_clamp_bound: float | None = None) -> None:
         super().__init__()
         self.attn_type = attn_type
+        self.use_degradation_head = use_degradation_head
+        self.last_degradation_logits: torch.Tensor | None = None
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
         dec_blk_nums = dec_blk_nums or [2, 2, 2, 2]
         if len(enc_blk_nums) != len(dec_blk_nums):
@@ -225,6 +228,15 @@ class NAFNet(nn.Module):
                        deep_clamp_bound=deep_clamp_bound)
               for _ in range(middle_blk_num)])
 
+        # kd_feature_multitask (see reports/kd_feature_multitask/plan.md):
+        # opt-in auxiliary degradation classifier + FiLM conditioning on
+        # middle_blks' output. `chan` here is exactly middle_blks' channel
+        # count (the loop above doubles it per stage same as the encoders).
+        self.degradation_head = None
+        if use_degradation_head:
+            from src.models.degradation_head import DegradationHead
+            self.degradation_head = DegradationHead(chan)
+
         for i, n in enumerate(dec_blk_nums):
             nt = stage_norm(i, len(dec_blk_nums), decoder=True)
             self.ups.append(nn.Sequential(
@@ -256,6 +268,8 @@ class NAFNet(nn.Module):
             x = down(x)
 
         x = self.middle_blks(x)
+        if self.degradation_head is not None:
+            x, self.last_degradation_logits = self.degradation_head(x)
 
         for dec, up, skip in zip(self.decoders, self.ups, reversed(skips)):
             x = up(x)
@@ -276,11 +290,14 @@ class NAFNet(nn.Module):
 
 def build_nafnet(cfg: dict, *, use_gate: bool = False,
                  norm_type: str | None = None,
-                 attn_type: str | None = None) -> NAFNet:
+                 attn_type: str | None = None,
+                 use_degradation_head: bool | None = None) -> NAFNet:
     """Construct a :class:`NAFNet` from a model-config dict (see configs/model).
 
     ``norm_type``/``attn_type`` override the config value, for sweeping
     variants (student_arch experiment — see reports/student_arch/).
+    ``use_degradation_head`` likewise overrides the config value (see
+    reports/kd_feature_multitask/plan.md).
     """
     gate_cfg = cfg.get("gate", {})
     return NAFNet(
@@ -296,4 +313,8 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
         full_res_norm_type=cfg.get("full_res_norm_type"),
         enc_clamp_stages=cfg.get("enc_clamp_stages"),
         deep_clamp_bound=cfg.get("deep_clamp_bound"),
+        use_degradation_head=(
+            use_degradation_head if use_degradation_head is not None
+            else cfg.get("use_degradation_head", False)
+        ),
     )
