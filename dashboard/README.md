@@ -1,27 +1,41 @@
-# kd_freq live dashboard
+# kd_feature_multitask dashboard
 
-Single-page live view of the M-DEHAZE-KD-FREQ 3-seed run (see
-`reports/kd_freq/plan.md`) against the completed GT-only and response-KD
-baselines. Stdlib-only Python — no pip dependencies, runs identically inside
-Docker or directly on the host.
+Replaces the previous `dashboard/` entirely (both the kd_freq-era single-page
+one and the `unified/` one from the ECA/kd_feat/GroupNorm phase). Rebuilt for
+the current phase: **B0V2-KD-FEAT** (control) vs **B0V2-KD-FEAT-COND**
+(treatment) — does degradation-conditioning prevent multi-task interference?
 
-## Run directly (no Docker)
+## What it shows
 
-    RUNS_ROOT=~/fyp-adair-distill/runs LAUNCH_LOG=/tmp/kd_freq_3seed.log \
-      python3 dashboard/server.py
-    # -> http://localhost:8080
+- **Control vs Treatment** panel: per-task PSNR delta (denoise/derain/dehaze
+  + combined) between the two arms, once both have at least one checkpoint.
+  This is the actual result the experiment is asking for — a single combined
+  PSNR number can hide interference concentrated on one task.
+- One card per arm: progress, PSNR (combined + per-task), loss/grad-norm/clip
+  diagnostics, clamp engagement (the F9/F10 divergence-risk telemetry), and a
+  live log tail.
 
-## Run with Docker
+## Architecture
 
-    cd dashboard && docker compose up -d --build
-    # -> http://localhost:8080
+- `remote_status.py` — deployed to `/tmp/remote_status.py` on each training
+  host. Stdlib only. Reads `history.json` (Trainer's own structured
+  per-checkpoint dump) and tails `train.log` straight from each run
+  directory — never touches the training process itself.
+- `local_server.py` — runs on THIS machine (not on either training host), so
+  it can SSH into both devon and qbits without either needing to trust the
+  other. Polls every 6s, serves the merged JSON at `/api/status` plus the
+  static page.
+- `index.html` — single page, vanilla JS, polls `/api/status` every 6s.
 
-Requires Docker installed (`sudo apt install docker.io docker-compose-plugin`)
-and the invoking user in the `docker` group — neither was available
-non-interactively when this was built (sudo needs a password on devon), so
-the live instance currently runs as a plain background process, not a
-container. Swap to `docker compose up -d --build` once Docker is installed;
-no code changes needed.
+## Run
 
-To expose outside an SSH tunnel: `sudo ufw allow 8080/tcp` on devon (also
-blocked on the same sudo password today).
+    python local_server.py
+    # -> http://127.0.0.1:8092
+
+Deploy `remote_status.py` to each host first:
+
+    scp -i <key> remote_status.py <user>@<host>:/tmp/remote_status.py
+
+`HOSTS` in `local_server.py` configures which arms (as `"out_root/ARM_NAME"`)
+to track on which host. Update it when an arm moves hosts or a new arm is
+added — this bit the previous dashboard (`unified/`) repeatedly.
