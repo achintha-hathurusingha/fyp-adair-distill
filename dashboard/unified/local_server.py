@@ -33,15 +33,19 @@ HOSTS = {
         # (33.190dB) landed inside the noise band already observed
         # mid-training, and the lit review already gives a mechanistic
         # reason (Parseval) not to expect more from further seeds. GPU
-        # capacity redirected to ECA instead.
-        "log_paths": ["/tmp/kd_freq_3seed.log", "/tmp/eca_devon.log"],
-        "arms": ["M-DEHAZE", "M-DEHAZE-KD", "M-DEHAZE-KD-FREQ", "M-DEHAZE-ECA"],
+        # capacity redirected to ECA instead. kd_feat moved back here from
+        # qbits once Himeth's job cleared and devon had real headroom again
+        # -- now running concurrently with ECA.
+        "log_paths": ["/tmp/kd_freq_3seed.log", "/tmp/eca_devon.log", "/tmp/kd_feat_devon.log"],
+        "arms": ["M-DEHAZE", "M-DEHAZE-KD", "M-DEHAZE-KD-FREQ", "M-DEHAZE-ECA", "M-DEHAZE-KD-FEAT"],
     },
     "qbits": {
         "target": "minura@192.248.10.67",
         "repo_root": "/home/minura/fyp-adair-distill",
-        "log_paths": ["/home/minura/qbits_arms.log", "/home/minura/kd_feat_resumed.log"],
-        "arms": ["M-DEHAZE-KD-FEAT", "M-DEHAZE-GROUPNORM"],
+        # Paused (deliberately, until 23:59 today) -- GroupNorm only now
+        # that kd_feat moved to devon.
+        "log_paths": ["/home/minura/qbits_arms.log"],
+        "arms": ["M-DEHAZE-GROUPNORM"],
     },
 }
 
