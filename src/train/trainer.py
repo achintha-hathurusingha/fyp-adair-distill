@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from src.data.datasets import build_dataset
@@ -227,6 +228,21 @@ class Trainer:
                 f"@ 1/{2**student_downsamples} -> teacher latent_pre "
                 f"{teacher_channels}ch @ 1/{2**teacher_downsamples} "
                 f"(scale_factor={scale_factor}) | feat weight {self.feat_weight}")
+
+        # Degradation-conditioning auxiliary loss (kd_feature_multitask — see
+        # reports/kd_feature_multitask/plan.md): cross-entropy between the
+        # student's OWN DegradationHead prediction and ground-truth task id.
+        # `_provenance["task"]` already flows through the multi-task loader
+        # unused (see the loop below) — no new data-pipeline work. Additive
+        # to the existing losses, never a replacement; zero weight = absent,
+        # same discipline as feat_weight/freq_weight.
+        self.aux_weight = float(dcfg.get("aux_weight", 0.0))
+        self._aux_last = 0.0
+        if self.aux_weight > 0 and getattr(self.model, "degradation_head", None) is None:
+            raise ValueError(
+                "distill.aux_weight is set but the model was not built with "
+                "use_degradation_head=True; there is no DegradationHead to "
+                "train against it.")
 
         # Optional MLflow logging -- best-effort, see src/utils/tracking.py for
         # why every call there is wrapped and can never fail a training run.
@@ -542,6 +558,27 @@ class Trainer:
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.amp):
                     pred = self.model(degraded)
                     loss = self.criterion(pred.float(), clean)
+                    if self.aux_weight > 0:
+                        # Purely a function of the STUDENT's own forward pass
+                        # (`last_degradation_logits`, set as a side effect of
+                        # `self.model(degraded)` above) — no teacher involved,
+                        # so this runs regardless of whether a teacher is
+                        # configured. Ground truth is `_provenance["task"]`,
+                        # a per-sample LongTensor from the multi-task loader's
+                        # default collation (see the loop comment below).
+                        if self.model.last_degradation_logits is None:
+                            raise RuntimeError(
+                                "distill.aux_weight > 0 but "
+                                "last_degradation_logits is None — the "
+                                "model's DegradationHead never fired this "
+                                "step")
+                        task_ids = _provenance["task"].to(
+                            self.device, non_blocking=True)
+                        aux = F.cross_entropy(
+                            self.model.last_degradation_logits.float(),
+                            task_ids)
+                        loss = loss + self.aux_weight * aux
+                        self._aux_last = float(aux)
                     if self.teacher is not None:
                         # Response distillation: one extra term, matching the
                         # teacher's OUTPUT on the same input. No hooks, no
@@ -711,6 +748,12 @@ class Trainer:
                         # actually be checked, rather than only seeing the
                         # combined `loss` and guessing which term dominates.
                         **({"feat_last": self._feat_last} if self.feat_weight > 0 else {}),
+                        # Raw (unweighted) auxiliary degradation-classification
+                        # CE — logged so it can be checked to actually decrease
+                        # (a stuck value would mean the head/FiLM aren't
+                        # learning despite the smoke test showing gradient
+                        # flow in isolation).
+                        **({"aux_last": self._aux_last} if self.aux_weight > 0 else {}),
                     }
                     self.state.history.append(row)
                     self.tracker.log_metrics(row, step=it)
@@ -719,6 +762,7 @@ class Trainer:
                         f"ssim {metrics['ssim']:.4f}  gnorm {gn:.3f}  "
                         f"maxgn {max_gnorm:.3f}  "
                         + (f"feat {row['feat_last']:.5f}  " if "feat_last" in row else "")
+                        + (f"aux {row['aux_last']:.5f}  " if "aux_last" in row else "")
                         + f"clip {clip_hits}/{steps_since} ({row['clip_rate']:.1%})  "
                         f"skip {nonfinite_skips}  "
                         + (f"clampeng {row['clamp_engage_rate']:.2%} "
