@@ -36,16 +36,17 @@ HOSTS = {
         # capacity redirected to ECA instead. kd_feat moved back here from
         # qbits once Himeth's job cleared and devon had real headroom again
         # -- now running concurrently with ECA.
-        "log_paths": ["/tmp/kd_freq_3seed.log", "/tmp/eca_devon.log", "/tmp/kd_feat_devon.log"],
-        "arms": ["M-DEHAZE", "M-DEHAZE-KD", "M-DEHAZE-KD-FREQ", "M-DEHAZE-ECA", "M-DEHAZE-KD-FEAT"],
+        "log_paths": ["/tmp/kd_freq_3seed.log", "/tmp/eca_devon.log", "/tmp/kd_feat_devon.log", "/tmp/groupnorm_devon.log"],
+        "arms": ["M-DEHAZE", "M-DEHAZE-KD", "M-DEHAZE-KD-FREQ", "M-DEHAZE-ECA", "M-DEHAZE-KD-FEAT", "M-DEHAZE-GROUPNORM"],
     },
     "qbits": {
         "target": "minura@192.248.10.67",
         "repo_root": "/home/minura/fyp-adair-distill",
-        # Paused (deliberately, until 23:59 today) -- GroupNorm only now
-        # that kd_feat moved to devon.
+        # Idle -- both kd_feat and GroupNorm ended up moving to devon once
+        # it had real headroom. Scheduled 23:59 resume cancelled (nothing
+        # left in its queue). No arms tracked here for now.
         "log_paths": ["/home/minura/qbits_arms.log"],
-        "arms": ["M-DEHAZE-GROUPNORM"],
+        "arms": [],
     },
 }
 
