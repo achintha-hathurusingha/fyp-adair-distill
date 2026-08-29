@@ -12,7 +12,10 @@ For each configured arm: finds the most-recently-modified
 entry (the structured per-checkpoint metrics Trainer._dump_history already
 writes -- psnr_denoise/psnr_derain/psnr_dehaze, clamp/grad diagnostics,
 feat_last/aux_last), and tails that run's own train.log for the live text
-stream between checkpoints.
+stream between checkpoints. Also returns a trimmed copy of the FULL history
+(iteration/elapsed_s/psnr* only, dropping the clamp/grad-norm/vram debug
+fields) so the frontend can chart PSNR-over-iterations, not just show the
+latest point.
 
 Prints one JSON line to stdout and exits -- local_server.py runs this over
 SSH once per poll.
@@ -78,6 +81,13 @@ def _tail(path: str, n: int) -> list[str]:
         return []
 
 
+HISTORY_KEYS = ("iteration", "elapsed_s", "psnr", "psnr_denoise", "psnr_derain", "psnr_dehaze")
+
+
+def _trim(entry: dict) -> dict:
+    return {k: entry[k] for k in HISTORY_KEYS if k in entry}
+
+
 def _arm_status(out_root: str, arm: str) -> dict:
     run_dir = _latest_run_dir(out_root, arm)
     if run_dir is None:
@@ -85,11 +95,13 @@ def _arm_status(out_root: str, arm: str) -> dict:
 
     hist_path = os.path.join(run_dir, "history.json")
     last = {}
+    history_trimmed = []
     try:
         with open(hist_path, "r", encoding="utf-8") as f:
             history = json.load(f)
         if history:
             last = history[-1]
+            history_trimmed = [_trim(h) for h in history]
     except (FileNotFoundError, json.JSONDecodeError):
         pass
 
@@ -101,6 +113,7 @@ def _arm_status(out_root: str, arm: str) -> dict:
         "arm": arm,
         "run_dir": os.path.basename(run_dir),
         "latest": last,
+        "history": history_trimmed,
         "log_tail": _tail(log_path, LOG_TAIL_LINES),
         "stale": stale,
         "last_update_s_ago": (time.time() - log_mtime) if log_mtime else None,
