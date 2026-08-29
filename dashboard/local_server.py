@@ -8,10 +8,19 @@ merges them and serves the combined result. No tunnel needed -- listens
 directly on localhost.
 
 Replaces the old dashboard/ (both the kd_freq-era single-page one and the
-unified/ one) entirely, rebuilt for the current phase: B0V2-KD-FEAT
-(control) vs B0V2-KD-FEAT-COND (treatment), tracking per-task PSNR
+unified/ one) entirely, rebuilt for the current phase. Tracks per-task PSNR
 (denoise/derain/dehaze) now that the B0V2 eval-gap fix makes those numbers
-real for the first time.
+real for the first time, across three arms with different roles:
+  B0V2-KD-FEAT           -- control, COMPLETE (90k iters)
+  B0V2-KD-FEAT-COND      -- treatment v1, STOPPED at it 69,000 (regressed
+                             on every task -- reports/kd_feature_multitask/
+                             cond_regression.md). Kept visible as the
+                             historical record, not an active run.
+  B0V2-KD-FEAT-CACHED    -- speed variant (reports/kd_feature_multitask/
+                             plan_cached_teacher.md): same loss/architecture
+                             as control, response/latent_pre read from a
+                             precomputed cache instead of a live teacher
+                             forward. Currently the only ACTIVE run.
 
 Usage: python local_server.py
 """
@@ -31,7 +40,9 @@ SSH_KEY = r"C:\Users\User\Documents\FYP\Achintha"
 HOSTS = {
     "devon": {
         "target": "minura@192.248.10.68",
-        "arms": ["b0v2_kd_feat/B0V2-KD-FEAT", "b0v2_kd_feat_cond/B0V2-KD-FEAT-COND"],
+        "arms": ["b0v2_kd_feat/B0V2-KD-FEAT",
+                "b0v2_kd_feat_cond/B0V2-KD-FEAT-COND",
+                "b0v2_kd_feat_cached/B0V2-KD-FEAT-CACHED"],
     },
     "qbits": {
         "target": "minura@192.248.10.67",

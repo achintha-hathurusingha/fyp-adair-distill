@@ -7,7 +7,7 @@
   :root {
     --bg: #0f1420; --panel: #161d2e; --panel2: #1c2438; --border: #2a3348;
     --text: #e6e9f0; --muted: #8a93a8; --accent: #4f8cff;
-    --control: #6b7fd7; --treat: #e0a44a;
+    --control: #6b7fd7; --treat: #e0a44a; --cached: #33b0c1;
     --good: #33c17a; --warn: #e0b83f; --bad: #e0554a;
   }
   * { box-sizing: border-box; }
@@ -82,6 +82,7 @@
   }
   .card.control { border-top: 3px solid var(--control); }
   .card.treat { border-top: 3px solid var(--treat); }
+  .card.cached { border-top: 3px solid var(--cached); }
   .card-head { padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; }
   .card-head .name { font-weight: 700; font-size: 14.5px; }
   .card-head .role { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -89,6 +90,23 @@
   .status-pill.live { background: rgba(51,193,122,0.15); color: var(--good); }
   .status-pill.stale { background: rgba(224,184,63,0.15); color: var(--warn); }
   .status-pill.err { background: rgba(224,85,74,0.15); color: var(--bad); }
+  .status-pill.complete { background: rgba(107,127,215,0.18); color: var(--control); }
+  .status-pill.stopped { background: rgba(224,85,74,0.15); color: var(--bad); }
+
+  #throughput {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 20px; margin-bottom: 20px;
+  }
+  #throughput h2 { margin: 0 0 12px; font-size: 13px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em; }
+  .tp-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .tp-stat { text-align: center; }
+  .tp-stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tp-stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+  .tp-arrow { font-size: 20px; color: var(--muted); }
+  .tp-speedup { margin-left: auto; text-align: right; }
+  .tp-speedup .v { font-size: 28px; font-weight: 800; color: var(--good); }
+  .tp-speedup .k { font-size: 11px; color: var(--muted); text-transform: uppercase; }
 
   .progress-wrap { padding: 0 18px 14px; }
   .progress-track { height: 6px; background: #0c1120; border-radius: 3px; overflow: hidden; }
@@ -120,12 +138,13 @@
 <header>
   <div>
     <h1>kd_feature_multitask</h1>
-    <div class="sub">B0V2-KD-FEAT (control) vs B0V2-KD-FEAT-COND (treatment) — degradation-conditioned feature-KD</div>
+    <div class="sub">control (complete) · treatment v1 (stopped, regressed) · cached-teacher speed variant (active)</div>
   </div>
   <div id="hosts"></div>
 </header>
 <main>
   <div id="gpus"></div>
+  <div id="throughput"></div>
   <div id="compare"></div>
   <div class="cards" id="cards"></div>
 </main>
@@ -133,8 +152,12 @@
 <script>
 const TOTAL_ITERS = 90000;
 const ARM_META = {
-  "B0V2-KD-FEAT": {role: "control", css: "control", label: "B0V2-KD-FEAT"},
-  "B0V2-KD-FEAT-COND": {role: "treatment", css: "treat", label: "B0V2-KD-FEAT-COND"},
+  "B0V2-KD-FEAT": {role: "control · complete", css: "control", label: "B0V2-KD-FEAT",
+    forceStatus: "complete"},
+  "B0V2-KD-FEAT-COND": {role: "treatment v1 · stopped, regressed", css: "treat",
+    label: "B0V2-KD-FEAT-COND", forceStatus: "stopped"},
+  "B0V2-KD-FEAT-CACHED": {role: "speed variant · active", css: "cached",
+    label: "B0V2-KD-FEAT-CACHED"},
 };
 const TASKS = ["denoise", "derain", "dehaze"];
 
@@ -191,6 +214,29 @@ function renderGpus(hosts) {
   }).join("");
 }
 
+function renderThroughput(hosts) {
+  const el = document.getElementById("throughput");
+  const control = findArm(hosts, "B0V2-KD-FEAT");
+  const cached = findArm(hosts, "B0V2-KD-FEAT-CACHED");
+  const cL = control && control.latest, kL = cached && cached.latest;
+  if (!cL || !cL.elapsed_s || !kL || !kL.elapsed_s) {
+    el.innerHTML = `<h2>Throughput — live vs cached teacher</h2>
+      <div class="empty">Waiting for both arms to have at least one checkpoint with timing data...</div>`;
+    return;
+  }
+  const controlRate = cL.iteration / cL.elapsed_s;
+  const cachedRate = kL.iteration / kL.elapsed_s;
+  const speedup = cachedRate / controlRate;
+  el.innerHTML = `<h2>Throughput — live-teacher control vs cached-teacher speed variant</h2>
+    <div class="tp-row">
+      <div class="tp-stat"><div class="v">${controlRate.toFixed(3)}</div><div class="k">control it/s (live teacher)</div></div>
+      <div class="tp-arrow">&rarr;</div>
+      <div class="tp-stat"><div class="v">${cachedRate.toFixed(3)}</div><div class="k">cached it/s</div></div>
+      <div class="tp-speedup"><div class="v">${speedup.toFixed(2)}&times;</div><div class="k">speedup so far</div></div>
+    </div>
+    <div class="note" style="margin-top:8px">profile_step_cost.py predicted ~4-5x from eliminating the live teacher forward (~78% of a step). Control rate is its full-run average (90k iters); cached rate is from ${kL.iteration.toLocaleString()} iterations so far.</div>`;
+}
+
 function renderCompare(hosts) {
   const el = document.getElementById("compare");
   const control = findArm(hosts, "B0V2-KD-FEAT");
@@ -222,8 +268,8 @@ function renderCompare(hosts) {
       <div class="delta-val ${d>=0?'pos':'neg'}">${d>=0?'+':''}${fmt(d)}</div>
     </div>`;
   }
-  el.innerHTML = `<h2>Control vs Treatment — PSNR delta (treatment &minus; control), dB</h2>${rows}
-    <div class="note">Positive = conditioning helped that task. iteration ${control.latest.iteration} (control) / ${treat.latest.iteration} (treatment)</div>`;
+  el.innerHTML = `<h2>Control vs Treatment v1 (STOPPED, regressed) — PSNR delta, dB</h2>${rows}
+    <div class="note">Historical record, not an active comparison — v1 (FiLM on middle_blks) was stopped at it 69,000 after regressing every task (reports/kd_feature_multitask/cond_regression.md). iteration ${control.latest.iteration} (control) / ${treat.latest.iteration} (treatment v1)</div>`;
 }
 
 function renderCard(armName, armStatus) {
@@ -237,8 +283,8 @@ function renderCard(armName, armStatus) {
   const L = armStatus.latest || {};
   const it = L.iteration || 0;
   const pct = Math.min(100, it / TOTAL_ITERS * 100);
-  const statusClass = armStatus.stale ? "stale" : "live";
-  const statusText = armStatus.stale ? "stale" : "live";
+  const statusClass = meta.forceStatus || (armStatus.stale ? "stale" : "live");
+  const statusText = meta.forceStatus || (armStatus.stale ? "stale" : "live");
 
   const taskChips = TASKS.map(t => `<div class="task-chip">
       <div class="tname">${t}</div>
@@ -289,10 +335,11 @@ async function tick() {
   }).join("");
 
   renderGpus(hosts);
+  renderThroughput(hosts);
   renderCompare(hosts);
 
   const cardsEl = document.getElementById("cards");
-  const order = ["B0V2-KD-FEAT", "B0V2-KD-FEAT-COND"];
+  const order = ["B0V2-KD-FEAT", "B0V2-KD-FEAT-COND", "B0V2-KD-FEAT-CACHED"];
   cardsEl.innerHTML = order.map(arm => renderCard(arm, findArm(hosts, arm))).join("");
 }
 
