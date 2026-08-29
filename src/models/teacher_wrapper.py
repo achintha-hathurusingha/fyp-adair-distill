@@ -110,6 +110,22 @@ class FrozenTeacher(nn.Module):
         self.epoch = ckpt.get("epoch")
         self.global_step = ckpt.get("global_step")
 
+        # Himeth's frequency-mask fix (FYP/Workspace/Himeth/mask_fix.md):
+        # released AdaIR's FreModule mask is empty at every resolution this
+        # project trains/evaluates at (128px patches), degenerating the
+        # entire frequency-mining path to torch.abs() -- see that report and
+        # src/models/adair_freq_fix.py for the full diagnosis. Fine-tuned
+        # checkpoints record which mask mode they were trained with in their
+        # own top-level dict; applying the fix for those is not optional --
+        # loading them without it is the SAME weights with a dead frequency
+        # path, silently. Checkpoints without a `mode` key (every checkpoint
+        # used anywhere in this project before this) are entirely
+        # unaffected -- this is purely additive.
+        self.freq_fix_mode = ckpt.get("mode")
+        if self.freq_fix_mode is not None:
+            from src.models.adair_freq_fix import apply_freq_fix
+            apply_freq_fix(self.net, mode=self.freq_fix_mode, tau=ckpt.get("tau", 0.05))
+
     def train(self, mode: bool = True):  # type: ignore[override]
         """Refuse to enter training mode. The teacher is frozen, permanently."""
         if mode:

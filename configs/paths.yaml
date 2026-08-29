@@ -60,3 +60,9 @@ teachers:
   derain:    adair-single-derain.ckpt
   dehaze:    adair-single-dehaze.ckpt
   all_in_one: adair3d.ckpt
+  # NOT an AdaIR-authors filename -- our own copy of Himeth's frequency-mask
+  # fix + fine-tune (FYP/Workspace/Himeth/mask_fix.md), +1.07dB vs all_in_one.
+  # Checkpoint self-describes mode/tau; FrozenTeacher applies the fix
+  # automatically (src/models/adair_freq_fix.py). Kept separate from
+  # all_in_one so past kd_feature_multitask results stay reproducible.
+  all_in_one_freqfix: adair3d_freqfix.pt
