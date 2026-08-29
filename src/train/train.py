@@ -183,8 +183,28 @@ ARMS: dict[str, dict] = {
                                    # _apply_yaml_overrides's drift guard raises.
                                    "use_degradation_head": True},
                           "config": "configs/train/b0v2_kd_feat_cond.yaml",
-                          "desc": "B0V2 TREATMENT: B0V2-KD-FEAT + DegradationHead/FiLM "
-                                  "conditioning (aux_weight=0.1)"},
+                          "desc": "B0V2 TREATMENT (RETIRED, see "
+                                  "reports/kd_feature_multitask/cond_regression.md): "
+                                  "FiLM on middle_blks regressed every task -- "
+                                  "replaced by B0V2-KD-FEAT-COND-DECFILM"},
+    # v2 (reports/kd_feature_multitask/plan_v2_decoder_film.md): replaces
+    # B0V2-KD-FEAT-COND above, which regressed by modulating middle_blks --
+    # the same tensor feature-KD reads. Identical in every other respect;
+    # conditioning moves to the 4 decoder stages instead (PromptIR-style
+    # multi-level, decoder-only injection).
+    "B0V2-KD-FEAT-COND-DECFILM": {
+        "norm": {"norm_type": "layernorm2d",
+                "full_res_norm_type": "affine_clamp",
+                "clamp_bound": 8.0,
+                "enc_clamp_stages": [3], "deep_clamp_bound": 32.0,
+                # THE ONLY ARCHITECTURAL DIFFERENCE FROM B0V2-KD-FEAT. Must
+                # match the YAML's own arch.use_decoder_degradation_head
+                # key-for-key or _apply_yaml_overrides's drift guard raises.
+                "use_decoder_degradation_head": True},
+        "config": "configs/train/b0v2_kd_feat_cond_decfilm.yaml",
+        "desc": "B0V2 TREATMENT v2: B0V2-KD-FEAT + per-decoder-stage FiLM "
+                "conditioning (aux_weight=0.1, classifier reads middle_blks "
+                "read-only)"},
 }
 
 #: w16_b8 — the config on which every norm variant is already profiled (arm S).
@@ -206,7 +226,8 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "M-DEHAZE-KD-FREQ": W16_SIDD, "M-DEHAZE-KD-FEAT": W16_SIDD,
                 "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD,
                 "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD,
-                "B0V2-KD-FEAT": W16_SIDD, "B0V2-KD-FEAT-COND": W16_SIDD}
+                "B0V2-KD-FEAT": W16_SIDD, "B0V2-KD-FEAT-COND": W16_SIDD,
+                "B0V2-KD-FEAT-COND-DECFILM": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:

@@ -1,0 +1,90 @@
+# B0V2-KD-FEAT-COND-DECFILM — kd_feature_multitask v2 (see
+# reports/kd_feature_multitask/plan_v2_decoder_film.md). Replaces
+# B0V2-KD-FEAT-COND (reports/kd_feature_multitask/cond_regression.md),
+# stopped at iteration 69,000/90,000 after its FiLM conditioning made every
+# task worse -- it modulated `middle_blks` itself, the same tensor the
+# feature-KD loss reads via the adapter against the teacher's `latent_pre`.
+#
+# IDENTICAL to B0V2-KD-FEAT-COND (and to B0V2-KD-FEAT, the control) in every
+# field except one architectural key: `arch.use_decoder_degradation_head`
+# replaces `arch.use_degradation_head`. Same classifier, same
+# `_provenance["task"]` target, same aux_weight=0.1 (unchanged -- no reason
+# to re-tune it, the classifier and its loss are the same). The ONLY
+# variable under test is where the conditioning signal gets WRITTEN:
+# per-decoder-stage FiLM (4 small heads, one per stage) instead of the
+# bottleneck. This isolates the tap-point diagnosis as the only change.
+
+experiment: b0v2_kd_feat_cond_decfilm
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+  # THE ONLY ARCHITECTURAL DIFFERENCE FROM B0V2-KD-FEAT (control). Replaces
+  # B0V2-KD-FEAT-COND's `use_degradation_head: true` -- see header note.
+  use_decoder_degradation_head: true
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  sigma_range: [0.0, 55.0]
+  clean_prob: 0.05
+  mixed_task: true
+  tasks:
+    denoise: Train/Denoise
+    derain:  Train/Derain
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+  num_workers: 6
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 90000   # matches B0V2-KD-FEAT / B0V2-KD-FEAT-COND exactly
+  warmup_iters: 3000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 3000
+  ckpt_every: 3000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+distill:
+  teacher_task: all_in_one
+  weight: 1.0
+  feat_weight: 0.01
+  # Unchanged from B0V2-KD-FEAT-COND -- the classifier and its loss are the
+  # same, only the FiLM injection point moved. No reason to re-scale-check.
+  aux_weight: 0.1
+
+eval:
+  harness: src/eval/evaluate.py
+  val_tasks:
+    denoise: test/denoise/bsd68
+    derain:  test/derain/demo
+    dehaze:  test/dehaze/demo
+  test_sets: [bsd68, derain_demo, dehaze_demo]   # documentation only
