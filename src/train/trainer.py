@@ -162,6 +162,14 @@ class Trainer:
         self.teacher = None
         self.kd_weight = float(dcfg.get("weight", 0.0))
         self._kd_last = 0.0
+        # cached_teacher (see reports/kd_feature_multitask/plan_cached_teacher.md):
+        # response/latent_pre come pre-computed from CachedTeacherDataset
+        # instead of a live forward pass -- the live teacher (a full fp32
+        # forward through a 28.78M-param model with FFT ops, ~78% of a
+        # step's wall-clock time per profile_step_cost.py) is never loaded
+        # in this mode. Mutually exclusive with a live teacher_task/teacher
+        # below: exactly one source of response/latent_pre per run.
+        self.use_cached_teacher = bool(dcfg.get("use_cached_teacher", False))
         # Frequency-domain term (F7): asks the student to match the teacher's
         # SPECTRUM, not just its pixels. Zero weight = absent, and the baselines
         # assert it stays zero.
@@ -177,20 +185,36 @@ class Trainer:
             teacher_path = teacher_checkpoint(dcfg["teacher_task"])
         elif dcfg.get("teacher"):
             teacher_path = Path(dcfg["teacher"])
-        if self.freq_weight > 0 and teacher_path is None:
+        if teacher_path is not None and self.use_cached_teacher:
+            raise ValueError(
+                "distill.teacher_task/teacher AND distill.use_cached_teacher "
+                "are both set -- exactly one source of response/latent_pre "
+                "is allowed per run, not both.")
+        has_teacher_source = teacher_path is not None or self.use_cached_teacher
+        if self.freq_weight > 0 and not has_teacher_source:
             raise ValueError(
                 "distill.freq_weight is set without a teacher; the "
                 "frequency term compares against the TEACHER's spectrum and "
                 "has nothing to compare to without one.")
-        if teacher_path is not None:
+        if self.freq_weight > 0 and self.use_cached_teacher:
+            raise ValueError(
+                "distill.freq_weight requires a live teacher (it needs the "
+                "response at fp32, computed on demand) -- not supported with "
+                "use_cached_teacher, which only caches response+latent_pre.")
+        if has_teacher_source:
             if self.kd_weight <= 0:
                 raise ValueError(
-                    "a distillation teacher is configured but distill.weight is "
-                    "not positive; that would load a teacher and ignore it.")
+                    "a distillation teacher/cache is configured but "
+                    "distill.weight is not positive; that would load one "
+                    "and ignore it.")
+        if teacher_path is not None:
             from src.models.teacher_wrapper import load_teacher
             self.teacher = load_teacher(teacher_path, device=device)
             self.log.info(f"teacher: {teacher_path.name} "
                           f"(frozen, eval) | kd weight {self.kd_weight}")
+        elif self.use_cached_teacher:
+            self.log.info(
+                f"teacher: CACHED (no live model loaded) | kd weight {self.kd_weight}")
 
         # Feature-level distillation on the teacher's internal `latent_pre`
         # bottleneck, not final-output pixels (kd_feature experiment — see
@@ -202,7 +226,7 @@ class Trainer:
         self.adapter = None
         self._student_middle_capture: torch.Tensor | None = None
         if self.feat_weight > 0:
-            if teacher_path is None:
+            if not has_teacher_source:
                 raise ValueError(
                     "distill.feat_weight is set without a teacher; the "
                     "feature term compares against the TEACHER's latent_pre "
@@ -619,7 +643,16 @@ class Trainer:
             # denoise loader, a {"task", "sigma"} dict from the multi-task one.
             # The loss uses neither; it is carried for diagnostics and for the
             # batch-composition assertions that F11 would have been caught by.
-            for degraded, clean, _provenance in self.loader:
+            #
+            # use_cached_teacher: CachedTeacherDataset yields two EXTRA
+            # tensors (the precomputed response/latent_pre -- see
+            # reports/kd_feature_multitask/plan_cached_teacher.md) instead
+            # of the live teacher ever running forward_with_latent() below.
+            for batch in self.loader:
+                if self.use_cached_teacher:
+                    degraded, clean, cached_response, cached_latent, _provenance = batch
+                else:
+                    degraded, clean, _provenance = batch
                 if it >= self.total_iters:
                     break
                 lr = self._lr_at(it)
@@ -653,28 +686,41 @@ class Trainer:
                             task_ids)
                         loss = loss + self.aux_weight * aux
                         self._aux_last = float(aux)
-                    if self.teacher is not None:
+                    if self.teacher is not None or self.use_cached_teacher:
                         # Response distillation: one extra term, matching the
                         # teacher's OUTPUT on the same input. No hooks, no
                         # adapters, no feature matching -- the student never
                         # learns to compute frequencies, only to reproduce what
                         # doing so produced (F7).
-                        # OUTSIDE autocast, in fp32. AdaIR's FreModule takes an
-                        # FFT, and aten::fft_fft2 has no bfloat16 kernel -- the
-                        # same frequency-domain machinery that makes the teacher
-                        # undeployable (F7) also makes it unable to run in the
-                        # student's training precision. The target is a fixed
-                        # quantity anyway, so computing it at full precision
-                        # costs only throughput.
-                        with torch.no_grad(), torch.autocast("cuda", enabled=False):
-                            if self.adapter is not None:
-                                # Single teacher pass produces BOTH the
-                                # response target and latent_pre — no second
-                                # forward needed for the feature term.
-                                soft, teacher_latent = self.teacher.forward_with_latent(
-                                    degraded.float())
-                            else:
-                                soft = self.teacher(degraded.float())
+                        if self.use_cached_teacher:
+                            # Precomputed by build_teacher_cache.py -- no live
+                            # forward pass at all (the ~78% of a step's
+                            # wall-clock time profile_step_cost.py measured
+                            # for this, gone). Already fp32-equivalent
+                            # (stored uint8/float16, upcast on read by
+                            # CachedTeacherDataset) -- just move to device.
+                            soft = cached_response.to(self.device, non_blocking=True)
+                            teacher_latent = cached_latent.to(self.device, non_blocking=True) \
+                                if self.adapter is not None else None
+                        else:
+                            # OUTSIDE autocast, in fp32. AdaIR's FreModule takes
+                            # an FFT, and aten::fft_fft2 has no bfloat16 kernel
+                            # -- the same frequency-domain machinery that makes
+                            # the teacher undeployable (F7) also makes it
+                            # unable to run in the student's training
+                            # precision. The target is a fixed quantity
+                            # anyway, so computing it at full precision costs
+                            # only throughput.
+                            with torch.no_grad(), torch.autocast("cuda", enabled=False):
+                                if self.adapter is not None:
+                                    # Single teacher pass produces BOTH the
+                                    # response target and latent_pre — no
+                                    # second forward needed for the feature
+                                    # term.
+                                    soft, teacher_latent = self.teacher.forward_with_latent(
+                                        degraded.float())
+                                else:
+                                    soft = self.teacher(degraded.float())
                         kd = self.criterion(pred.float(), soft.float())
                         loss = loss + self.kd_weight * kd
                         self._kd_last = float(kd)
