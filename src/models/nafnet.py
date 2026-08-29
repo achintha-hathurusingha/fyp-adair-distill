@@ -161,6 +161,8 @@ class NAFNet(nn.Module):
                  attn_type: str = "sca",
                  use_degradation_head: bool = False,
                  use_decoder_degradation_head: bool = False,
+                 use_freq_gate: bool = False,
+                 use_dcp_prior: bool = False,
                  full_res_norm_type: str | None = None,
                  clamp_bound: float | None = None,
                  enc_clamp_stages: list[int] | None = None,
@@ -169,6 +171,8 @@ class NAFNet(nn.Module):
         self.attn_type = attn_type
         self.use_degradation_head = use_degradation_head
         self.use_decoder_degradation_head = use_decoder_degradation_head
+        self.use_freq_gate = use_freq_gate
+        self.use_dcp_prior = use_dcp_prior
         self.last_degradation_logits: torch.Tensor | None = None
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
         dec_blk_nums = dec_blk_nums or [2, 2, 2, 2]
@@ -203,7 +207,15 @@ class NAFNet(nn.Module):
                 return "layernorm2d_clamp"
             return norm_type
 
-        self.intro = nn.Conv2d(img_channels, width, 3, padding=1)
+        # reports/student_theory_review/lit_review.md: a zero-learned-param,
+        # spatially-varying physical prior (Koschmieder atmospheric
+        # scattering model / He-Sun-Tang dark channel prior) concatenated as
+        # an extra input channel, targeting dehaze specifically -- the task
+        # furthest behind the teacher on every measurement so far
+        # (reports/kd_feature_multitask/cond_regression.md). AdaIR has no
+        # equivalent: it learns haze removal purely from data.
+        self.intro = nn.Conv2d(img_channels + (1 if use_dcp_prior else 0),
+                               width, 3, padding=1)
         self.gate = ChannelGate(width, gate_reduction) if use_gate else None
         self.ending = nn.Conv2d(width, img_channels, 3, padding=1)
 
@@ -267,6 +279,24 @@ class NAFNet(nn.Module):
             self.decoder_degradation_head = DecoderDegradationHead(
                 chan, decoder_channels)
 
+        # reports/student_theory_review/lit_review.md: one LaplacianFrequencyGate
+        # per decoder stage -- a spatially-localized, NPU-safe (no FFT)
+        # substitute for AdaIR's own frequency modulation (FreModule), which
+        # cannot be exported to any mobile NPU backend (torch.fft has no
+        # QNN/TFLite op). Zero-init inside the module, so this is the
+        # identity map until training moves it off that init, same
+        # stabilization pattern as every other opt-in addition here.
+        self.freq_gates = None
+        if use_freq_gate:
+            from src.models.theory_blocks import LaplacianFrequencyGate
+            decoder_channels = []
+            c = chan
+            for _ in dec_blk_nums:
+                c //= 2
+                decoder_channels.append(c)
+            self.freq_gates = nn.ModuleList(
+                LaplacianFrequencyGate(c) for c in decoder_channels)
+
         for i, n in enumerate(dec_blk_nums):
             nt = stage_norm(i, len(dec_blk_nums), decoder=True)
             self.ups.append(nn.Sequential(
@@ -287,7 +317,11 @@ class NAFNet(nn.Module):
         _, _, h, w = inp.shape
         inp = self._pad(inp)
 
-        x = self.intro(inp)
+        if self.use_dcp_prior:
+            from src.models.theory_blocks import dark_channel_prior
+            x = self.intro(torch.cat([inp, dark_channel_prior(inp)], dim=1))
+        else:
+            x = self.intro(inp)
         if self.gate is not None:
             x = self.gate(x)
 
@@ -310,6 +344,8 @@ class NAFNet(nn.Module):
             x = up(x)
             x = x + skip
             x = dec(x)
+            if self.freq_gates is not None:
+                x = self.freq_gates[i](x)
             if self.decoder_degradation_head is not None:
                 x = self.decoder_degradation_head.modulate(x, decoder_probs, i)
 
@@ -329,7 +365,9 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
                  norm_type: str | None = None,
                  attn_type: str | None = None,
                  use_degradation_head: bool | None = None,
-                 use_decoder_degradation_head: bool | None = None) -> NAFNet:
+                 use_decoder_degradation_head: bool | None = None,
+                 use_freq_gate: bool | None = None,
+                 use_dcp_prior: bool | None = None) -> NAFNet:
     """Construct a :class:`NAFNet` from a model-config dict (see configs/model).
 
     ``norm_type``/``attn_type`` override the config value, for sweeping
@@ -337,6 +375,8 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
     ``use_degradation_head``/``use_decoder_degradation_head`` likewise
     override the config value (see reports/kd_feature_multitask/plan.md and
     plan_v2_decoder_film.md — the latter replaces the former, which regressed).
+    ``use_freq_gate``/``use_dcp_prior`` add the two theory-grounded, NPU-safe
+    modules from reports/student_theory_review/lit_review.md.
     """
     gate_cfg = cfg.get("gate", {})
     return NAFNet(
@@ -359,5 +399,13 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
         use_decoder_degradation_head=(
             use_decoder_degradation_head if use_decoder_degradation_head is not None
             else cfg.get("use_decoder_degradation_head", False)
+        ),
+        use_freq_gate=(
+            use_freq_gate if use_freq_gate is not None
+            else cfg.get("use_freq_gate", False)
+        ),
+        use_dcp_prior=(
+            use_dcp_prior if use_dcp_prior is not None
+            else cfg.get("use_dcp_prior", False)
         ),
     )
