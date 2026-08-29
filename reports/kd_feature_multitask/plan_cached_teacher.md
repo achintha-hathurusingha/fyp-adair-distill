@@ -83,24 +83,32 @@ entries draws its own continuous σ independently), but any *one* source
 image is anchored to only ~15 of those draws for the whole run, not a fresh
 one every epoch.
 
-Flips and 90°-rotations are **equivariant**: flipping/rotating the cached
-`degraded` and `clean` together with the cached `response` and
-`latent_pre` produces an exactly-valid teacher output for that
-transformed input — the teacher is deterministic, so this is not an
-approximation, it's the same guarantee a live re-run would give, at zero
-extra teacher-forward cost. Applying one of the 8 dihedral transforms
-(identity, 3 rotations, and their mirror images) at random each time a
-pool entry is drawn multiplies effective diversity by up to 8x for free.
-`CachedTeacherDataset.__getitem__` applies this on every draw (Step 2 in
-the build order below) — it is not a later optimization, it is part of the
-design from the start, precisely because the risk it addresses is already
-a documented failure mode in this project.
+**UPDATE, tested and rejected**: the plan originally proposed D4
+(flip/rotation) re-augmentation here, reasoning that a deterministic
+teacher's output must transform identically to its input. That reasoning
+is sound for a generic CNN, but wrong for *this* teacher — verified
+directly in `smoke_cached_teacher_dataset.py`, not assumed, precisely
+because this codebase has a documented history of non-obvious asymmetric
+behaviour in this exact frequency-domain machinery (TEST01/06/18's
+resolution-dependent mask degeneracy, TEST20's uneven per-AFLB coverage).
+The result: of the 8 dihedral transforms, only the **identity** produced a
+teacher output matching quantization tolerance. Even a plain horizontal
+flip broke completely — latent diff ~15 against a signal scale of ~2.5, an
+order of magnitude beyond noise, not a subtle asymmetry. AdaIR's FFT-based
+`FreModule` is not flip/rotation-equivariant in practice, whatever the
+theoretical argument suggested. **D4 re-augmentation is dropped from this
+design entirely** — `CachedTeacherDataset` stores and serves cached entries
+unmodified, no geometric re-augmentation of any kind.
 
-This does **not** fully substitute for the lost crop-position/σ diversity
-(D4 transforms of the same crop are still the same crop, just reoriented),
-which is exactly why Step 5's validation against the existing live-trained
-control's real PSNR — checked at extreme σ, not just the aggregate number —
-stays a mandatory gate, not a formality.
+This removes the one mitigation this plan had for the lost crop-position/σ
+diversity a finite pool introduces (see above) — which makes Step 5's
+validation against the existing live-trained control's real PSNR, checked
+at extreme σ specifically, not just the aggregate number, more load-bearing
+than before, not less. If that validation shows a real regression, the
+honest fix is a larger pool (more distinct crop/σ draws), not a
+reintroduced augmentation trick — this teacher has now demonstrated it
+punishes exactly the kind of "should be safe" geometric assumption that
+trick depended on.
 
 ## Training-side integration
 
@@ -149,13 +157,14 @@ consistently.
    writes to the memmap files + JSON index. Smoke-test on a tiny pool (e.g.
    500 samples) first — verify the index and memmap round-trip exactly
    (write then read back, byte-for-byte).
-2. `CachedTeacherDataset` + sampler, WITH the D4 re-augmentation from the
-   section above built in from the start — smoke-test in isolation: yields
+2. `CachedTeacherDataset` + sampler — smoke-test in isolation: yields
    correctly-shaped tuples, task balance matches configured ratios, no
-   duplicate/missing indices, and verify the equivariance claim directly
-   (flip a cached `degraded`/`clean` pair, flip the cached `latent_pre` the
-   same way, confirm it matches what a live teacher forward on the flipped
-   input actually produces — not just assumed).
+   duplicate/missing indices. **Also test the D4-equivariance claim
+   directly before building it in** (flip/rotate a cached sample, compare
+   against a live teacher forward on the identically-transformed input) --
+   done, and it FAILED for every non-identity transform (see "Diversity
+   mitigation" above). No re-augmentation is applied; the dataset serves
+   cached entries as-is.
 3. `Trainer` wiring — `use_cached_teacher` flag, skip loading the live
    teacher entirely when set. Smoke-test: a few real optimizer steps,
    confirm loss values are the same order of magnitude as the live pipeline
