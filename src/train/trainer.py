@@ -240,18 +240,27 @@ class Trainer:
 
         # Degradation-conditioning auxiliary loss (kd_feature_multitask — see
         # reports/kd_feature_multitask/plan.md): cross-entropy between the
-        # student's OWN DegradationHead prediction and ground-truth task id.
+        # student's OWN degradation-head prediction and ground-truth task id.
         # `_provenance["task"]` already flows through the multi-task loader
         # unused (see the loop below) — no new data-pipeline work. Additive
         # to the existing losses, never a replacement; zero weight = absent,
         # same discipline as feat_weight/freq_weight.
+        #
+        # Works unchanged with EITHER head variant -- both set
+        # `model.last_degradation_logits`, this loss only reads that
+        # attribute and doesn't care which one populated it. `degradation_head`
+        # is the retired v1 design (cond_regression.md, modulates middle_blks
+        # -- regressed); `decoder_degradation_head` is v2
+        # (plan_v2_decoder_film.md, modulates the decoder instead).
         self.aux_weight = float(dcfg.get("aux_weight", 0.0))
         self._aux_last = 0.0
-        if self.aux_weight > 0 and getattr(self.model, "degradation_head", None) is None:
+        if (self.aux_weight > 0
+                and getattr(self.model, "degradation_head", None) is None
+                and getattr(self.model, "decoder_degradation_head", None) is None):
             raise ValueError(
                 "distill.aux_weight is set but the model was not built with "
-                "use_degradation_head=True; there is no DegradationHead to "
-                "train against it.")
+                "use_degradation_head=True or use_decoder_degradation_head=True; "
+                "there is no degradation head to train against it.")
 
         # Optional MLflow logging -- best-effort, see src/utils/tracking.py for
         # why every call there is wrapped and can never fail a training run.
