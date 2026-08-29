@@ -160,6 +160,7 @@ class NAFNet(nn.Module):
                  gate_reduction: int = 4, norm_type: str = "layernorm2d",
                  attn_type: str = "sca",
                  use_degradation_head: bool = False,
+                 use_decoder_degradation_head: bool = False,
                  full_res_norm_type: str | None = None,
                  clamp_bound: float | None = None,
                  enc_clamp_stages: list[int] | None = None,
@@ -167,6 +168,7 @@ class NAFNet(nn.Module):
         super().__init__()
         self.attn_type = attn_type
         self.use_degradation_head = use_degradation_head
+        self.use_decoder_degradation_head = use_decoder_degradation_head
         self.last_degradation_logits: torch.Tensor | None = None
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
         dec_blk_nums = dec_blk_nums or [2, 2, 2, 2]
@@ -232,10 +234,38 @@ class NAFNet(nn.Module):
         # opt-in auxiliary degradation classifier + FiLM conditioning on
         # middle_blks' output. `chan` here is exactly middle_blks' channel
         # count (the loop above doubles it per stage same as the encoders).
+        #
+        # RETIRED DESIGN, kept only so B0V2-KD-FEAT-COND's config stays
+        # reproducible: modulating middle_blks itself made every task worse
+        # and the gap widened over training (reports/kd_feature_multitask/
+        # cond_regression.md) -- it fights the feature-KD loss, which reads
+        # this exact tensor. Use use_decoder_degradation_head instead.
+        if use_degradation_head and use_decoder_degradation_head:
+            raise ValueError(
+                "use_degradation_head and use_decoder_degradation_head are "
+                "mutually exclusive -- the first is the retired, regressed "
+                "design (cond_regression.md), the second replaces it.")
         self.degradation_head = None
         if use_degradation_head:
             from src.models.degradation_head import DegradationHead
             self.degradation_head = DegradationHead(chan)
+
+        # v2 (see reports/kd_feature_multitask/plan_v2_decoder_film.md):
+        # classifies off middle_blks read-only, FiLM-conditions each decoder
+        # stage instead -- never writes to the tensor feature-KD reads.
+        # `decoder_channels` mirrors the halving the decoder-building loop
+        # below performs, computed here (before that loop mutates `chan`)
+        # since the head needs the full list up front.
+        self.decoder_degradation_head = None
+        if use_decoder_degradation_head:
+            from src.models.decoder_degradation_head import DecoderDegradationHead
+            decoder_channels = []
+            c = chan
+            for _ in dec_blk_nums:
+                c //= 2
+                decoder_channels.append(c)
+            self.decoder_degradation_head = DecoderDegradationHead(
+                chan, decoder_channels)
 
         for i, n in enumerate(dec_blk_nums):
             nt = stage_norm(i, len(dec_blk_nums), decoder=True)
@@ -271,10 +301,17 @@ class NAFNet(nn.Module):
         if self.degradation_head is not None:
             x, self.last_degradation_logits = self.degradation_head(x)
 
-        for dec, up, skip in zip(self.decoders, self.ups, reversed(skips)):
+        decoder_probs = None
+        if self.decoder_degradation_head is not None:
+            self.last_degradation_logits, decoder_probs = \
+                self.decoder_degradation_head.classify(x)
+
+        for i, (dec, up, skip) in enumerate(zip(self.decoders, self.ups, reversed(skips))):
             x = up(x)
             x = x + skip
             x = dec(x)
+            if self.decoder_degradation_head is not None:
+                x = self.decoder_degradation_head.modulate(x, decoder_probs, i)
 
         x = self.ending(x)
         x = x + inp
@@ -291,13 +328,15 @@ class NAFNet(nn.Module):
 def build_nafnet(cfg: dict, *, use_gate: bool = False,
                  norm_type: str | None = None,
                  attn_type: str | None = None,
-                 use_degradation_head: bool | None = None) -> NAFNet:
+                 use_degradation_head: bool | None = None,
+                 use_decoder_degradation_head: bool | None = None) -> NAFNet:
     """Construct a :class:`NAFNet` from a model-config dict (see configs/model).
 
     ``norm_type``/``attn_type`` override the config value, for sweeping
     variants (student_arch experiment — see reports/student_arch/).
-    ``use_degradation_head`` likewise overrides the config value (see
-    reports/kd_feature_multitask/plan.md).
+    ``use_degradation_head``/``use_decoder_degradation_head`` likewise
+    override the config value (see reports/kd_feature_multitask/plan.md and
+    plan_v2_decoder_film.md — the latter replaces the former, which regressed).
     """
     gate_cfg = cfg.get("gate", {})
     return NAFNet(
@@ -316,5 +355,9 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
         use_degradation_head=(
             use_degradation_head if use_degradation_head is not None
             else cfg.get("use_degradation_head", False)
+        ),
+        use_decoder_degradation_head=(
+            use_decoder_degradation_head if use_decoder_degradation_head is not None
+            else cfg.get("use_decoder_degradation_head", False)
         ),
     )
