@@ -132,6 +132,22 @@
     max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
 
   .empty { padding: 30px 18px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+  #charts { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 20px; }
+  @media (max-width: 980px) { #charts { grid-template-columns: 1fr; } }
+  .chart-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px 10px;
+  }
+  .chart-card h3 { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em; }
+  .chart-card canvas { display: block; width: 100%; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 8px;
+    padding-top: 8px; border-top: 1px solid var(--border); }
+  .chart-legend .item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .chart-legend .swatch { width: 14px; height: 3px; border-radius: 2px; }
+  .chart-legend .swatch.dashed { background-image: linear-gradient(90deg, currentColor 60%, transparent 40%);
+    background-size: 6px 3px; background-color: transparent; height: 2px; }
 </style>
 </head>
 <body>
@@ -146,6 +162,7 @@
   <div id="gpus"></div>
   <div id="throughput"></div>
   <div id="compare"></div>
+  <div id="charts"></div>
   <div class="cards" id="cards"></div>
 </main>
 
@@ -160,6 +177,21 @@ const ARM_META = {
     label: "B0V2-KD-FEAT-CACHED"},
 };
 const TASKS = ["denoise", "derain", "dehaze"];
+const ARM_COLOR = {
+  "B0V2-KD-FEAT": "#6b7fd7", "B0V2-KD-FEAT-COND": "#e0a44a", "B0V2-KD-FEAT-CACHED": "#33b0c1",
+};
+// AdaIR teacher, real eval on the same 3 held-out sets (bsd68/derain-demo/dehaze-demo),
+// this session -- shown as a dashed reference ceiling, matching the old dashboard's style.
+const TEACHER_PSNR = {
+  psnr: (31.253 + 39.725 + 36.928) / 3,
+  psnr_denoise: 31.253, psnr_derain: 39.725, psnr_dehaze: 36.928,
+};
+const CHART_DEFS = [
+  {key: "psnr", title: "Combined PSNR (mean over tasks)"},
+  {key: "psnr_denoise", title: "Denoise PSNR"},
+  {key: "psnr_derain", title: "Derain PSNR"},
+  {key: "psnr_dehaze", title: "Dehaze PSNR"},
+];
 
 function fmt(v, d=3) { return (v === undefined || v === null || Number.isNaN(v)) ? "—" : v.toFixed(d); }
 function esc(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
@@ -235,6 +267,93 @@ function renderThroughput(hosts) {
       <div class="tp-speedup"><div class="v">${speedup.toFixed(2)}&times;</div><div class="k">speedup so far</div></div>
     </div>
     <div class="note" style="margin-top:8px">profile_step_cost.py predicted ~4-5x from eliminating the live teacher forward (~78% of a step). Control rate is its full-run average (90k iters); cached rate is from ${kL.iteration.toLocaleString()} iterations so far.</div>`;
+}
+
+function drawLineChart(canvas, series, refLine) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 420, cssH = 220;
+  canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const padL = 42, padR = 10, padT = 10, padB = 22;
+  const plotW = cssW - padL - padR, plotH = cssH - padT - padB;
+
+  const allPts = series.flatMap(s => s.points);
+  if (!allPts.length) {
+    ctx.fillStyle = "#8a93a8"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("no checkpoints yet", cssW / 2, cssH / 2);
+    return;
+  }
+  const xs = allPts.map(p => p.x), ys = allPts.map(p => p.y).concat(refLine ? [refLine] : []);
+  let xMax = Math.max(1, ...xs);
+  let yMin = Math.min(...ys) - 1, yMax = Math.max(...ys) + 1;
+  if (yMax - yMin < 4) { const mid = (yMax + yMin) / 2; yMin = mid - 2; yMax = mid + 2; }
+
+  const X = x => padL + (x / xMax) * plotW;
+  const Y = y => padT + plotH - ((y - yMin) / (yMax - yMin)) * plotH;
+
+  // gridlines + y labels
+  ctx.strokeStyle = "#2a3348"; ctx.fillStyle = "#8a93a8";
+  ctx.font = "10px sans-serif"; ctx.textAlign = "right"; ctx.lineWidth = 1;
+  const nTicks = 4;
+  for (let i = 0; i <= nTicks; i++) {
+    const v = yMin + (yMax - yMin) * i / nTicks;
+    const y = Y(v);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(cssW - padR, y); ctx.stroke();
+    ctx.fillText(v.toFixed(1), padL - 6, y + 3);
+  }
+  ctx.textAlign = "center";
+  for (let i = 0; i <= 3; i++) {
+    const v = xMax * i / 3;
+    ctx.fillText(Math.round(v).toLocaleString(), X(v), cssH - 6);
+  }
+
+  // teacher reference (dashed)
+  if (refLine !== undefined) {
+    ctx.strokeStyle = "#e9a723"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(padL, Y(refLine)); ctx.lineTo(cssW - padR, Y(refLine)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // series lines
+  for (const s of series) {
+    if (!s.points.length) continue;
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.beginPath();
+    s.points.forEach((p, i) => { const px = X(p.x), py = Y(p.y);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+    ctx.stroke();
+    const last = s.points[s.points.length - 1];
+    ctx.fillStyle = s.color;
+    ctx.beginPath(); ctx.arc(X(last.x), Y(last.y), 3, 0, 2 * Math.PI); ctx.fill();
+  }
+}
+
+function renderCharts(hosts) {
+  const el = document.getElementById("charts");
+  const arms = Object.keys(ARM_META).map(name => ({name, status: findArm(hosts, name)}))
+    .filter(a => a.status && !a.status.error);
+
+  el.innerHTML = CHART_DEFS.map(def => `
+    <div class="chart-card">
+      <h3>${def.title}</h3>
+      <canvas id="chart-${def.key}"></canvas>
+      <div class="chart-legend">
+        ${arms.map(a => `<span class="item"><span class="swatch" style="background:${ARM_COLOR[a.name]}"></span>${ARM_META[a.name].label}</span>`).join("")}
+        <span class="item" style="color:#e9a723"><span class="swatch dashed" style="color:#e9a723"></span>AdaIR teacher (real eval, same held-out sets)</span>
+      </div>
+    </div>`).join("");
+
+  for (const def of CHART_DEFS) {
+    const series = arms.map(a => ({
+      color: ARM_COLOR[a.name],
+      points: (a.status.history || [])
+        .filter(h => h[def.key] !== undefined && h.iteration !== undefined)
+        .map(h => ({x: h.iteration, y: h[def.key]})),
+    }));
+    drawLineChart(document.getElementById(`chart-${def.key}`), series, TEACHER_PSNR[def.key]);
+  }
 }
 
 function renderCompare(hosts) {
@@ -337,6 +456,7 @@ async function tick() {
   renderGpus(hosts);
   renderThroughput(hosts);
   renderCompare(hosts);
+  renderCharts(hosts);
 
   const cardsEl = document.getElementById("cards");
   const order = ["B0V2-KD-FEAT", "B0V2-KD-FEAT-COND", "B0V2-KD-FEAT-CACHED"];
