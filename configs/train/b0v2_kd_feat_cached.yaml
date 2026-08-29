@@ -1,0 +1,89 @@
+# B0V2-KD-FEAT-CACHED — cached_teacher speed validation (see
+# reports/kd_feature_multitask/plan_cached_teacher.md, Step 5). IDENTICAL to
+# B0V2-KD-FEAT (control) in every field except how response/latent_pre are
+# obtained: this arm reads them from the precomputed 180,000-sample pool
+# (cache/teacher_cache_v1) instead of running the live teacher every step,
+# which profile_step_cost.py measured at ~78% of a step's wall-clock time.
+#
+# This is a SEPARATE arm, not a replacement for B0V2-KD-FEAT or a retrofit
+# of it -- the two use different training data regimes (live infinite
+# augmentation vs a finite 180k-sample pool revisited across epochs) and
+# must not be conflated. Its purpose right now is Step 5's validation: does
+# the measured speedup actually materialize end-to-end, and does training
+# on the finite pool converge to a comparable PSNR (checked once this run
+# has enough iterations to compare against B0V2-KD-FEAT's own real curve).
+
+experiment: b0v2_kd_feat_cached
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  # sigma_range/clean_prob/tasks/mixed_task below are UNUSED in cached mode
+  # -- train.py's use_cached_teacher branch is checked first and short-
+  # circuits before any of these are read; the cache already baked in the
+  # F10 continuous-sigma sampling at build time (build_teacher_cache.py
+  # used the same sigma_range). Kept here anyway, matching every other
+  # B0V2 arm's data section, rather than relying on them being provably
+  # unreachable dead code.
+  mixed_task: true
+  tasks:
+    denoise: Train/Denoise
+    derain:  Train/Derain
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+  num_workers: 6
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 90000   # matches B0V2-KD-FEAT exactly, for the eventual PSNR comparison
+  warmup_iters: 3000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 3000
+  ckpt_every: 3000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+distill:
+  use_cached_teacher: true
+  cache_dir: cache/teacher_cache_v1
+  weight: 1.0
+  feat_weight: 0.01
+
+eval:
+  harness: src/eval/evaluate.py
+  val_tasks:
+    denoise: test/denoise/bsd68
+    derain:  test/derain/demo
+    dehaze:  test/dehaze/demo
+  test_sets: [bsd68, derain_demo, dehaze_demo]   # documentation only

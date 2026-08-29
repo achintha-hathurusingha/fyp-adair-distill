@@ -205,6 +205,21 @@ ARMS: dict[str, dict] = {
         "desc": "B0V2 TREATMENT v2: B0V2-KD-FEAT + per-decoder-stage FiLM "
                 "conditioning (aux_weight=0.1, classifier reads middle_blks "
                 "read-only)"},
+    # cached_teacher (reports/kd_feature_multitask/plan_cached_teacher.md):
+    # same architecture/loss as B0V2-KD-FEAT, but response/latent_pre come
+    # from the precomputed 180k-sample pool instead of a live teacher
+    # forward every step (~78% of a step's wall-clock time,
+    # profile_step_cost.py). No arch-level difference from B0V2-KD-FEAT --
+    # use_cached_teacher/cache_dir are distill: config, not arch: -- so the
+    # "norm" dict here is identical to B0V2-KD-FEAT's own.
+    "B0V2-KD-FEAT-CACHED": {
+        "norm": {"norm_type": "layernorm2d",
+                "full_res_norm_type": "affine_clamp",
+                "clamp_bound": 8.0,
+                "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+        "config": "configs/train/b0v2_kd_feat_cached.yaml",
+        "desc": "B0V2-KD-FEAT, speed variant: response/latent_pre from a "
+                "precomputed cache instead of a live teacher forward"},
 }
 
 #: w16_b8 — the config on which every norm variant is already profiled (arm S).
@@ -227,7 +242,8 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD,
                 "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD,
                 "B0V2-KD-FEAT": W16_SIDD, "B0V2-KD-FEAT-COND": W16_SIDD,
-                "B0V2-KD-FEAT-COND-DECFILM": W16_SIDD}
+                "B0V2-KD-FEAT-COND-DECFILM": W16_SIDD,
+                "B0V2-KD-FEAT-CACHED": W16_SIDD}
 
 
 def _apply_yaml_overrides(cfg: dict, spec: dict, arm: str) -> dict:
@@ -401,7 +417,25 @@ def main() -> None:
     # the loader was hardcoded to denoise while the key sat in the config saying
     # otherwise. It is now load-bearing, and `tasks` is mandatory when it is on —
     # falling back to denoise is exactly the failure that produced B0-denoise.
-    if cfg["data"]["mixed_task"]:
+    if (cfg.get("distill") or {}).get("use_cached_teacher"):
+        # cached_teacher (see reports/kd_feature_multitask/plan_cached_teacher.md):
+        # reads a precomputed (degraded, clean, response, latent_pre) pool
+        # instead of live-sampling + running the teacher every step -- the
+        # ~78% of a step's wall-clock time profile_step_cost.py measured for
+        # that live forward pass. Cache dir is a portable relative path
+        # (repo-root-relative), matching the "no absolute paths in tracked
+        # config" rule the rest of this file follows.
+        from src.data.cached_teacher_dataset import build_cached_teacher_loader
+        cache_dir = cfg["distill"].get("cache_dir")
+        if not cache_dir:
+            raise ValueError(
+                "distill.use_cached_teacher is set but distill.cache_dir is "
+                "missing -- nothing to read the cache from.")
+        num_batches = cfg["schedule"]["total_iters"] * accum
+        loader = build_cached_teacher_loader(
+            REPO_ROOT / cache_dir, batch_size=micro_bs,
+            num_batches=num_batches, num_workers=workers, seed=args.seed)
+    elif cfg["data"]["mixed_task"]:
         tasks = cfg["data"].get("tasks")
         if not tasks:
             raise ValueError(
