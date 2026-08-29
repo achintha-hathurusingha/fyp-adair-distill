@@ -70,6 +70,38 @@ profiling run). **180,000 images ≈ 54 minutes** of GPU time, one-time,
 versus the ~14.4 hours a single 90k-iteration run currently pays for the
 exact same computation, repeated with zero reuse.
 
+## Diversity mitigation — free D4 re-augmentation at train time
+
+A finite pool anchors each entry to one fixed crop position and, for
+denoise, one fixed noise realization — a real diversity reduction versus
+live sampling. This project has already measured what insufficient
+diversity costs here: finding F10, where discrete-only sigma coverage
+({15,25,50}) left the model unable to handle a near-clean input (125.37/255
+MAE vs the teacher's 1.88/255) until continuous sampling fixed it. A cached
+pool's *aggregate* sigma coverage stays broad (each of the 80,000 denoise
+entries draws its own continuous σ independently), but any *one* source
+image is anchored to only ~15 of those draws for the whole run, not a fresh
+one every epoch.
+
+Flips and 90°-rotations are **equivariant**: flipping/rotating the cached
+`degraded` and `clean` together with the cached `response` and
+`latent_pre` produces an exactly-valid teacher output for that
+transformed input — the teacher is deterministic, so this is not an
+approximation, it's the same guarantee a live re-run would give, at zero
+extra teacher-forward cost. Applying one of the 8 dihedral transforms
+(identity, 3 rotations, and their mirror images) at random each time a
+pool entry is drawn multiplies effective diversity by up to 8x for free.
+`CachedTeacherDataset.__getitem__` applies this on every draw (Step 2 in
+the build order below) — it is not a later optimization, it is part of the
+design from the start, precisely because the risk it addresses is already
+a documented failure mode in this project.
+
+This does **not** fully substitute for the lost crop-position/σ diversity
+(D4 transforms of the same crop are still the same crop, just reoriented),
+which is exactly why Step 5's validation against the existing live-trained
+control's real PSNR — checked at extreme σ, not just the aggregate number —
+stays a mandatory gate, not a formality.
+
 ## Training-side integration
 
 - New `CachedTeacherDataset` reads the memmap files + a small JSON index
@@ -117,9 +149,13 @@ consistently.
    writes to the memmap files + JSON index. Smoke-test on a tiny pool (e.g.
    500 samples) first — verify the index and memmap round-trip exactly
    (write then read back, byte-for-byte).
-2. `CachedTeacherDataset` + sampler — smoke-test in isolation: yields
+2. `CachedTeacherDataset` + sampler, WITH the D4 re-augmentation from the
+   section above built in from the start — smoke-test in isolation: yields
    correctly-shaped tuples, task balance matches configured ratios, no
-   duplicate/missing indices.
+   duplicate/missing indices, and verify the equivariance claim directly
+   (flip a cached `degraded`/`clean` pair, flip the cached `latent_pre` the
+   same way, confirm it matches what a live teacher forward on the flipped
+   input actually produces — not just assumed).
 3. `Trainer` wiring — `use_cached_teacher` flag, skip loading the live
    teacher entirely when set. Smoke-test: a few real optimizer steps,
    confirm loss values are the same order of magnitude as the live pipeline
