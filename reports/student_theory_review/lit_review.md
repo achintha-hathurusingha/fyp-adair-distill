@@ -94,7 +94,7 @@ below the paper.
    a 1x1 conv, for free, once you're in frequency space. This is the real
    theoretical justification for "FFT helps," which AdaIR's own paper never
    states (see section 1) -- but it is also exactly the operation
-   (`torch.fft`) that turns out to be undeployable (section 3).
+   (`torch.fft`) that turns out to be undeployable (section 5).
 
 6. **Dauphin, Fan, Auli & Grangier, "Language Modeling with Gated
    Convolutional Networks," ICML 2017 / [arXiv:1612.08083](https://arxiv.org/abs/1612.08083).**
@@ -120,7 +120,113 @@ genuinely missing capabilities are frequency-selectivity (item 1/2/5) and a
 physical degradation model (item 3/4) -- neither of which the student has
 any version of today.
 
-## 3. The mobile-NPU constraint (this repo's own methodology)
+## 3. Is it really the block design? -- a real controlled backbone study
+
+Chen, Chu, Zhang & Sun's NAFNet paper (ECCV 2022) itself was **only ever
+evaluated on denoising (SIDD) and deblurring (GoPro)** -- never on
+deraining or dehazing. Using it as an all-in-one multi-degradation backbone
+was, from the start, an out-of-distribution architectural choice compared
+with AdaIR/Restormer/AirNet, which were purpose-built and validated for
+exactly that setting.
+
+**"A Comparative Study of Image Restoration Networks for General Backbone
+Network Design," [arXiv:2310.11881](https://arxiv.org/abs/2310.11881)**
+ran NAFNet, SwinIR and Restormer on identical tasks and found:
+
+| Task | NAFNet | SwinIR | Restormer |
+|---|---|---|---|
+| Deraining (Test100) | 30.33 | 30.05 | **32.03** |
+| Dehazing (SOTS Indoor) | 38.97 | 29.14 | **41.87** |
+| Deblurring (GoPro) | **33.08** | 31.66 | 32.92 |
+
+NAFNet loses by 1.7dB (derain) and 2.9dB (dehaze) but *wins* on
+deblurring -- and the paper's own explanation is architectural, not just a
+training artifact: depthwise convolution has "relatively weak spatial
+mapping capability ... compared to spatial self-attention," and
+deraining/dehazing specifically need "the ability to handle large-range or
+even global information," while denoising is "flexible" (multiple
+architecture families do it well). **This matches our own measurement
+exactly** -- our student ties the GT-only baseline on denoise and lags on
+derain/dehaze (cond_regression.md) -- which upgrades this from "AdaIR-
+inspired guess" to "independently reproduced pattern with a published
+architectural explanation."
+
+This directly motivated re-opening a question the mobile-NPU section below
+had only provisionally deferred (MDTA pending a real probe): global/
+large-range context, not just frequency-selectivity or a haze prior, may be
+a real, separate gap.
+
+## 4. Follow-up: is attention actually viable, and a mathematically-derived
+   alternative if not
+
+**`scripts/probe_mdta.py`** -- ran AdaIR/Restormer's actual MDTA block
+(unmodified) through this repo's op-coverage gate. Result: it lowers to
+`MatMul`, `Softmax`, and `ReduceL2` (inside the L2-normalize), and **none of
+the three appear in ANY of the curated qnn/tflite/tensorrt tables** --
+genuinely unverified (real-world Qualcomm NPU deployments of attention
+models exist, e.g. on-device LLM inference research, so this is "unproven,"
+not "known-bad," unlike FFT in section 5) but a real, uncharacterized risk.
+
+Rather than gamble the deployment target on an unverified op set, two more
+additions were built, mathematically matched to what each weak task
+actually needs, and NPU-verified the same way as everything above:
+
+**`StripPoolingGate`** (Hu, Zhang, Xie & Yang, "Strip Pooling: Rethinking
+Spatial Pooling for Scene Parsing," CVPR 2020) -- pools along one FULL
+spatial axis at a time (mean over W keeping H, and vice versa), which is
+genuinely global along that axis, at the bottleneck (one instance, cheapest
+placement for a global operation). Gets a comparable "large-range
+information" capability to attention from AveragePool/mean + Conv only.
+First isolated-probe version used `.expand()` on a runtime shape, which
+traced to `Equal`/`Where`/`ConstantOfShape`/`Expand` (all UNKNOWN) --
+caught and fixed by relying on ONNX `Add`'s native broadcasting instead.
+Second bug, caught only once embedded in the FULL model (not the isolated
+probe): `F.adaptive_avg_pool2d(y, (x.shape[-2], 1))` traces `x.shape[-2]`
+as non-constant once downstream of NAFNet's own dynamic padding, which
+ONNX export rejects -- fixed by recognizing that pooling to a target size
+equal to one axis' own extent is just `mean(dim=that_axis, keepdim=True)`,
+which has no such requirement. Final whole-model op-coverage: identical
+UNKNOWN/CAUTION categories to the already-shipped baseline, zero new ones
+(`ReduceMean` count goes from 128 to 130 -- more instances of an
+*already-present* category, not a new one).
+
+**`OrientedStreakGate`** -- not a named architecture at all, derived
+directly from the mathematics of the degradation per the user's direction
+to work "from a mathematical perspective." Rain-streak decomposition
+literature (Kang, Lin & Lin, "Automatic Single-Image-Based Rain Streak
+Removal via Image Decomposition," IEEE TIP 2012; Li, Tan, Guo, Lu & Brown,
+"Rain Streak Removal Using Layer Priors," CVPR 2016) models a rainy image
+as `I = B + R`, where `R` is a sparse, **directionally-anisotropic**
+high-frequency layer -- real streaks have a dominant orientation. Every
+conv in NAFBlock is an isotropic (4-fold-symmetric) square kernel --
+structurally the wrong shape for a signal whose defining property IS its
+orientation. Freeman & Adelson, "The Design and Use of Steerable Filters,"
+IEEE TPAMI 13(9), 1991, gives the governing theory: a small basis of
+directional filters, linearly combined with learned angle-dependent
+weights, synthesizes a response at any orientation. Implemented as 4
+fixed-orientation depthwise kernels (0/45/90/135 degrees -- two elongated
+rectangular kernels for the axis-aligned angles, two square kernels with
+the off-diagonal half masked to zero at init AND held there via a gradient
+hook for the diagonal angles), combined via an SE-style channel gate.
+Verified: op histogram is exactly `{Conv, GlobalAveragePool, Relu, Sigmoid,
+Concat, Mul, Add}` -- **100% SUPPORTED on qnn/tflite/tensorrt, no
+exceptions at all** -- the cleanest result of anything built in this
+review, since it introduces no op type NAFNet doesn't already use.
+
+Both wired into `NAFNet` as further opt-in flags (`use_strip_pool`,
+`use_oriented_streak`), verified together with the section-3 additions in
+one whole-model export (`scripts/smoke_nafnet_theory.py`): +206,608 params
+total over the 7.37M-param locked student (+2.80%), all 740 parameter
+tensors receive finite gradient, zero new UNKNOWN/CAUTION op categories
+versus the already-shipped baseline.
+
+## 5. The mobile-NPU constraint (this repo's own methodology)
+
+*(Sections 3-4 above already assumed this section's conclusions -- FFT is
+undeployable, MDTA is unverified -- since those findings came first
+chronologically. Reading order here follows how the investigation actually
+unfolded rather than re-deriving each fact only once, in a purely linear
+document.)*
 
 Per `reports/export_smoke_test.md` and `src/export/op_coverage.py` (Gate
 G1), the real deployment targets are **QNN** (Qualcomm Hexagon NPU),
@@ -195,20 +301,30 @@ backends. Forward/backward pass verified: all 704 parameter tensors receive
 finite gradient; `LaplacianFrequencyGate` confirmed byte-identical to the
 un-modified model when loaded onto the same weights (max diff `0.00e+00`).
 
-## 4. What this does NOT establish
+## 6. What this does NOT establish
 
-- No training run yet. Both additions are architecture-level and
-  export-verified, not accuracy-verified -- whether they close any of the
-  denoise/derain/dehaze gap is untested.
-- MDTA/GDFN (channel-attention transformer blocks) remain a live, distinct
-  option if someone runs the real op-coverage probe on them and the result
-  is favorable -- this review didn't rule them out on merit, only deferred
-  them pending that verification, given the current NAFNet backbone is
-  already proven and the immediate priority was closing the frequency- and
-  physics-prior gaps first.
-- Table 14's own finding (dehaze hurts AdaIR's multi-task training more than
-  other degradations) means some of the current dehaze gap may not be
-  closeable by architecture changes alone.
+- **No training run yet.** All four additions (`LaplacianFrequencyGate`,
+  `dark_channel_prior`, `StripPoolingGate`, `OrientedStreakGate`) are
+  architecture- and export-verified, not accuracy-verified -- whether any
+  of them actually close the denoise/derain/dehaze gap is untested. The
+  natural next step is single-task ceiling probes (train on denoise-only /
+  derain-only / dehaze-only, no multi-task mixing, short matched budget) to
+  separate "does the current architecture have a real per-task capacity/
+  receptive-field ceiling" from "is the gap multi-task interference" --
+  before spending a full 90k-iteration multi-task run on any one variant.
+- MDTA/GDFN were probed (not just theorized about) and found genuinely
+  unverified rather than known-bad -- `MatMul`/`Softmax`/`ReduceL2` are
+  simply absent from this repo's curated tables for all three backends,
+  which plausibly reflects the table having never needed to characterize
+  attention ops before (this codebase had none until this probe), not a
+  real Qualcomm/TFLite limitation. Updating the curated table itself from
+  primary QNN/TFLite documentation, or an actual on-device convert test,
+  would resolve this properly and is worth doing if the strip-pool/oriented
+  additions don't close enough of the gap on their own.
+- Table 14 of the AdaIR paper (section 1) shows dehaze hurts even the
+  teacher's own multi-task training more than other degradations -- some of
+  the current dehaze gap may not be closeable by architecture changes
+  alone, regardless of which of the above turns out to help.
 
 ## Full reference list
 
@@ -236,7 +352,22 @@ un-modified model when loaded onto the same weights (max diff `0.00e+00`).
 11. Chen, Liu, Chen & Fu. "Simple Baselines for Image Restoration." ECCV
     2022 (NAFNet -- the current student's backbone, this project's own
     `src/models/nafnet.py`).
+12. "A Comparative Study of Image Restoration Networks for General Backbone
+    Network Design." https://arxiv.org/abs/2310.11881 (independent
+    controlled comparison of NAFNet/SwinIR/Restormer on identical tasks --
+    section 3's central evidence).
+13. Kang, Lin & Lin. "Automatic Single-Image-Based Rain Streak Removal via
+    Image Decomposition." IEEE Trans. Image Processing, 2012.
+14. Li, Tan, Guo, Lu & Brown. "Rain Streak Removal Using Layer Priors."
+    CVPR 2016.
+15. Freeman & Adelson. "The Design and Use of Steerable Filters." IEEE
+    TPAMI 13(9), 1991.
+16. Hu, Zhang, Xie & Yang. "Strip Pooling: Rethinking Spatial Pooling for
+    Scene Parsing." CVPR 2020.
 
 Op-coverage methodology and curated support tables:
 `reports/export_smoke_test.md`, `src/export/op_coverage.py` (this repo,
-Gate G1).
+Gate G1). Real op-coverage probes run this session: `scripts/
+probe_mdta.py`, `scripts/probe_strip_pool.py`, `scripts/
+probe_oriented_filter.py`, `scripts/smoke_theory_blocks.py`, `scripts/
+smoke_nafnet_theory.py`.

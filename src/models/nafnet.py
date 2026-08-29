@@ -163,6 +163,8 @@ class NAFNet(nn.Module):
                  use_decoder_degradation_head: bool = False,
                  use_freq_gate: bool = False,
                  use_dcp_prior: bool = False,
+                 use_strip_pool: bool = False,
+                 use_oriented_streak: bool = False,
                  full_res_norm_type: str | None = None,
                  clamp_bound: float | None = None,
                  enc_clamp_stages: list[int] | None = None,
@@ -173,6 +175,8 @@ class NAFNet(nn.Module):
         self.use_decoder_degradation_head = use_decoder_degradation_head
         self.use_freq_gate = use_freq_gate
         self.use_dcp_prior = use_dcp_prior
+        self.use_strip_pool = use_strip_pool
+        self.use_oriented_streak = use_oriented_streak
         self.last_degradation_logits: torch.Tensor | None = None
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
         dec_blk_nums = dec_blk_nums or [2, 2, 2, 2]
@@ -242,6 +246,19 @@ class NAFNet(nn.Module):
                        deep_clamp_bound=deep_clamp_bound)
               for _ in range(middle_blk_num)])
 
+        # reports/student_theory_review/lit_review.md section 5: a
+        # controlled backbone comparison (arXiv:2310.11881) found NAFNet
+        # loses to Restormer by 1.7-2.9dB specifically on derain/dehaze,
+        # attributed to depthwise convolution's weak "large-range/global
+        # information" capability -- placed at the bottleneck (lowest
+        # resolution, most semantic representation, cheapest place to add
+        # this) rather than per-decoder-stage. Zero-init inside the module:
+        # identity at init.
+        self.strip_pool = None
+        if use_strip_pool:
+            from src.models.theory_blocks import StripPoolingGate
+            self.strip_pool = StripPoolingGate(chan)
+
         # kd_feature_multitask (see reports/kd_feature_multitask/plan.md):
         # opt-in auxiliary degradation classifier + FiLM conditioning on
         # middle_blks' output. `chan` here is exactly middle_blks' channel
@@ -297,6 +314,23 @@ class NAFNet(nn.Module):
             self.freq_gates = nn.ModuleList(
                 LaplacianFrequencyGate(c) for c in decoder_channels)
 
+        # reports/student_theory_review/lit_review.md section 6: a
+        # mathematically rain-specific block (Kang et al. 2012 / Li et al.
+        # 2016 rain-layer decomposition + Freeman & Adelson 1991 steerable
+        # filters), one per decoder stage -- streak texture reconstruction
+        # is a progressive, resolution-dependent process, same placement
+        # rationale as freq_gates. Zero-init inside the module.
+        self.streak_gates = None
+        if use_oriented_streak:
+            from src.models.theory_blocks import OrientedStreakGate
+            decoder_channels = []
+            c = chan
+            for _ in dec_blk_nums:
+                c //= 2
+                decoder_channels.append(c)
+            self.streak_gates = nn.ModuleList(
+                OrientedStreakGate(c) for c in decoder_channels)
+
         for i, n in enumerate(dec_blk_nums):
             nt = stage_norm(i, len(dec_blk_nums), decoder=True)
             self.ups.append(nn.Sequential(
@@ -332,6 +366,8 @@ class NAFNet(nn.Module):
             x = down(x)
 
         x = self.middle_blks(x)
+        if self.strip_pool is not None:
+            x = self.strip_pool(x)
         if self.degradation_head is not None:
             x, self.last_degradation_logits = self.degradation_head(x)
 
@@ -346,6 +382,8 @@ class NAFNet(nn.Module):
             x = dec(x)
             if self.freq_gates is not None:
                 x = self.freq_gates[i](x)
+            if self.streak_gates is not None:
+                x = self.streak_gates[i](x)
             if self.decoder_degradation_head is not None:
                 x = self.decoder_degradation_head.modulate(x, decoder_probs, i)
 
@@ -367,7 +405,9 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
                  use_degradation_head: bool | None = None,
                  use_decoder_degradation_head: bool | None = None,
                  use_freq_gate: bool | None = None,
-                 use_dcp_prior: bool | None = None) -> NAFNet:
+                 use_dcp_prior: bool | None = None,
+                 use_strip_pool: bool | None = None,
+                 use_oriented_streak: bool | None = None) -> NAFNet:
     """Construct a :class:`NAFNet` from a model-config dict (see configs/model).
 
     ``norm_type``/``attn_type`` override the config value, for sweeping
@@ -407,5 +447,13 @@ def build_nafnet(cfg: dict, *, use_gate: bool = False,
         use_dcp_prior=(
             use_dcp_prior if use_dcp_prior is not None
             else cfg.get("use_dcp_prior", False)
+        ),
+        use_strip_pool=(
+            use_strip_pool if use_strip_pool is not None
+            else cfg.get("use_strip_pool", False)
+        ),
+        use_oriented_streak=(
+            use_oriented_streak if use_oriented_streak is not None
+            else cfg.get("use_oriented_streak", False)
         ),
     )

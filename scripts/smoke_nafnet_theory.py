@@ -1,7 +1,8 @@
-"""End-to-end smoke test: NAFNet + use_freq_gate + use_dcp_prior together,
-on the real W16 SIDD (locked) geometry -- forward pass, param delta vs the
-plain locked config, gradient flow through every new parameter, then a real
-ONNX export + op-coverage check of the WHOLE model (not just the isolated
+"""End-to-end smoke test: NAFNet + all four theory additions together
+(use_freq_gate, use_dcp_prior, use_strip_pool, use_oriented_streak), on the
+real W16 SIDD (locked) geometry -- forward pass, param delta vs the plain
+locked config, gradient flow through every new parameter, then a real ONNX
+export + op-coverage check of the WHOLE model (not just the isolated
 blocks) so the accounting in the lit review matches what actually gets
 exported, not just the pieces in isolation.
 """
@@ -19,7 +20,8 @@ BASE_CFG = dict(width=16, enc_blk_nums=[2, 2, 4, 8], middle_blk_num=12, dec_blk_
 m_base = build_nafnet(BASE_CFG)
 n_base = sum(p.numel() for p in m_base.parameters())
 
-m_theory = build_nafnet(BASE_CFG, use_freq_gate=True, use_dcp_prior=True)
+m_theory = build_nafnet(BASE_CFG, use_freq_gate=True, use_dcp_prior=True,
+                        use_strip_pool=True, use_oriented_streak=True)
 n_theory = sum(p.numel() for p in m_theory.parameters())
 print(f"base params:   {n_base:,}")
 print(f"+theory params: {n_theory:,}  (+{n_theory - n_base:,}, {(n_theory/n_base - 1) * 100:.2f}%)")

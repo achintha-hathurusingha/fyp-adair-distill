@@ -58,7 +58,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ["LaplacianFrequencyGate", "dark_channel_prior"]
+__all__ = ["LaplacianFrequencyGate", "dark_channel_prior", "StripPoolingGate", "OrientedStreakGate"]
 
 
 class _PSUp2x(nn.Module):
@@ -161,3 +161,138 @@ def dark_channel_prior(x: torch.Tensor, patch_size: int = 7) -> torch.Tensor:
     inv = 1.0 - min_channel
     pooled_inv = F.max_pool2d(inv, kernel_size=patch_size, stride=1, padding=pad)
     return 1.0 - pooled_inv
+
+
+class StripPoolingGate(nn.Module):
+    """Hu, Zhang, Xie & Yang, "Strip Pooling: Rethinking Spatial Pooling for
+    Scene Parsing," CVPR 2020. Pools along one FULL spatial axis at a time
+    (adaptive_avg_pool2d to (H,1) / (1,W)) -- genuinely global context along
+    that axis, not just a larger local window.
+
+    Motivation (reports/student_theory_review/lit_review.md section 5): a
+    controlled backbone comparison (arXiv:2310.11881) found NAFNet loses to
+    Restormer by 1.7dB (deraining) and 2.9dB (dehazing) while *winning* on
+    deblurring, and attributes this specifically to depthwise convolution's
+    "weak spatial mapping capability" versus attention's global reach --
+    exactly the pattern this project's own real evaluation shows (tied on
+    denoise, behind on derain/dehaze). MDTA (the attention mechanism AdaIR
+    and Restormer both use) was probed the same way as everything else here
+    (scripts/probe_mdta.py) and found to lower to MatMul/Softmax/ReduceL2,
+    NONE of which appear in this repo's curated qnn/tflite/tensorrt tables
+    -- genuinely unverified, not proven either way, but a real risk this
+    module avoids taking. Strip pooling gets a comparable "large-range
+    information" capability from AveragePool + Conv only: verified to lower
+    to exactly {Add, AveragePool, Conv} -- SUPPORTED on every backend, no
+    exceptions.
+
+    Zero-init final projection: additive residual, identity at init.
+    """
+
+    def __init__(self, dim: int, reduction: int = 4):
+        super().__init__()
+        hidden = max(1, dim // reduction)
+        self.reduce = nn.Conv2d(dim, hidden, 1, bias=False)
+        self.conv_h = nn.Conv2d(hidden, hidden, kernel_size=(3, 1), padding=(1, 0), bias=False)
+        self.conv_w = nn.Conv2d(hidden, hidden, kernel_size=(1, 3), padding=(0, 1), bias=False)
+        self.fuse = nn.Conv2d(hidden, dim, 1, bias=False)
+        nn.init.zeros_(self.fuse.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = self.reduce(x)
+        # adaptive_avg_pool2d(y, (H,1)) IS mean-over-W-keep-H -- pooling to
+        # a target size equal to the input's OWN size in one axis is just a
+        # reduction along the other axis. Using mean() directly instead of
+        # adaptive_avg_pool2d avoids a real bug this had: inside the full
+        # NAFNet graph (not the standalone probe), x.shape[-2] traces as a
+        # non-constant value once downstream of NAFNet's own dynamic
+        # padding, and ONNX export requires adaptive-pool output_size to be
+        # constant -- verified via scripts/smoke_nafnet_theory.py, not
+        # assumed. mean(dim=..., keepdim=True) has no such requirement.
+        yh = self.conv_h(y.mean(dim=3, keepdim=True))  # (B,hidden,H,1)
+        yw = self.conv_w(y.mean(dim=2, keepdim=True))  # (B,hidden,1,W)
+        # Ordinary tensor-addition broadcasting (ONNX Add is natively
+        # broadcasting) rather than an explicit .expand() call -- an
+        # earlier version's runtime-shape-derived .expand(-1,-1,h,w) traced
+        # to Equal/Where/ConstantOfShape/Expand, all UNKNOWN on every
+        # backend (verified, not assumed; see scripts/probe_strip_pool.py).
+        return x + self.fuse(yh + yw)
+
+
+class OrientedStreakGate(nn.Module):
+    """A rain-specific block derived from the actual mathematical structure
+    of the degradation, not borrowed as a named black-box architecture.
+
+    Rain-streak decomposition literature (Kang, Lin & Lin, "Automatic
+    Single-Image-Based Rain Streak Removal via Image Decomposition," IEEE
+    TIP, 2012; Li, Tan, Guo, Lu & Brown, "Rain Streak Removal Using Layer
+    Priors," CVPR 2016) models a rainy image as I = B + R, where R is a
+    SPARSE, DIRECTIONALLY-ANISOTROPIC high-frequency layer -- real streaks
+    have a dominant orientation, not an isotropic one. Every conv in NAFBlock
+    is a square (isotropic, 4-fold-symmetric) kernel -- structurally the
+    wrong shape for a signal whose defining property IS its orientation.
+
+    Freeman & Adelson, "The Design and Use of Steerable Filters," IEEE
+    TPAMI 13(9), 1991 -- the actual theory: a small basis of directional
+    filters, combined with learned angle-dependent weights, can synthesize
+    a response at any orientation. Approximated here with 4 fixed-orientation
+    depthwise kernels (0/45/90/135 degrees: two elongated rectangular
+    kernels for the axis-aligned angles, two square kernels with the
+    off-diagonal half masked to zero at init -- see `_mask_diagonal` -- for
+    the diagonal angles, matching real rain's typical near-vertical-with-
+    scatter geometry), combined via a learned SE-style channel gate.
+
+    Built entirely from Conv/GlobalAveragePool/ReLU/Sigmoid/Concat/Mul/Add
+    -- no new op types versus what NAFNet already ships. Verified: op
+    histogram is exactly {Conv, GlobalAveragePool, Relu, Sigmoid, Concat,
+    Mul, Add} -- SUPPORTED on every backend, no exceptions
+    (scripts/probe_oriented_filter.py). Zero-init final projection:
+    additive residual, identity at init.
+    """
+
+    def __init__(self, dim: int, reduction: int = 8, k: int = 7):
+        super().__init__()
+        hidden = max(1, dim // reduction)
+        self.reduce = nn.Conv2d(dim, hidden, 1, bias=False)
+        self.conv_0 = nn.Conv2d(hidden, hidden, kernel_size=(1, k), padding=(0, k // 2),
+                                groups=hidden, bias=False)
+        self.conv_90 = nn.Conv2d(hidden, hidden, kernel_size=(k, 1), padding=(k // 2, 0),
+                                 groups=hidden, bias=False)
+        self.conv_45 = nn.Conv2d(hidden, hidden, kernel_size=k, padding=k // 2,
+                                 groups=hidden, bias=False)
+        self.conv_135 = nn.Conv2d(hidden, hidden, kernel_size=k, padding=k // 2,
+                                  groups=hidden, bias=False)
+        self._mask_diagonal(self.conv_45.weight, k, main=True)
+        self._mask_diagonal(self.conv_135.weight, k, main=False)
+
+        self.gate = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(hidden * 4, hidden, 1, bias=False), nn.ReLU(inplace=True),
+            nn.Conv2d(hidden, hidden * 4, 1, bias=False), nn.Sigmoid(),
+        )
+        self.fuse = nn.Conv2d(hidden * 4, dim, 1, bias=False)
+        nn.init.zeros_(self.fuse.weight)
+
+    @staticmethod
+    def _mask_diagonal(weight: torch.Tensor, k: int, main: bool) -> None:
+        """Zero every tap off the chosen diagonal band, in-place, at init,
+        and keep it there via a gradient hook -- gives conv_45/conv_135 a
+        genuine oriented support (per Freeman & Adelson: a directional
+        filter needs directional SUPPORT, not just a directional label),
+        not an isotropic kxk kernel that happens to be called '45 degrees'.
+        """
+        mask = torch.zeros(k, k)
+        for i in range(k):
+            j = i if main else (k - 1 - i)
+            for dj in (-1, 0, 1):
+                jj = j + dj
+                if 0 <= jj < k:
+                    mask[i, jj] = 1.0
+        with torch.no_grad():
+            weight.mul_(mask.view(1, 1, k, k))
+        weight.register_hook(lambda g, m=mask: g * m.to(g.device).view(1, 1, k, k))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = self.reduce(x)
+        bands = torch.cat([self.conv_0(y), self.conv_90(y), self.conv_45(y), self.conv_135(y)], dim=1)
+        gated = bands * self.gate(bands)
+        return x + self.fuse(gated)
