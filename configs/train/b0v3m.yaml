@@ -1,0 +1,88 @@
+# B0V3M -- Student v3 with MULTI-LEVEL global context.
+#
+# Identical to B0V3 in EVERY respect except one: instead of a single
+# StripPoolingGate applied once after the bottleneck, a gate is interleaved
+# after every 4th middle block (3 gates inside middle_blks). Single
+# variable: how many injection points the global operator gets.
+#
+# Rationale. A single zero-init residual applied once may be too weak to
+# move a 12-block bottleneck -- it has one chance to act, on the fully
+# processed output. The literature ablates this directly and comes down on
+# the multi-level side: PromptIR reports 37.04dB multi-level vs 36.76dB
+# single-point on its own Rain100L ablation, and AdaIR places three
+# FreModules rather than one. Neither is evidence about OUR operator, which
+# is why this is run as a controlled pair against B0V3 rather than assumed.
+#
+# Cost: +114,688 params over B0V3 (7,562,019 vs 7,447,331), i.e. +2.6% over
+# the plain NAFNet baseline rather than +1.02%.
+#
+# GT-only, same as B0V3 and for the same reason: KD has never helped on
+# this protocol (test07_b NO-GO with both teachers), so including it would
+# confound an architecture comparison.
+
+experiment: b0v3m
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  arch: student_v3
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+  use_dcp_prior: true
+  use_strip_pool: true
+  use_oriented_streak: true
+  mid_strip_every: 4        # <-- THE ONLY DIFFERENCE FROM B0V3
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  mixed_task: true
+  tasks:
+    denoise: Train/Denoise
+    derain:  Train/Derain
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+  num_workers: 6
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 90000        # matched to B0V3 for a like-for-like curve
+  warmup_iters: 3000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 3000
+  ckpt_every: 3000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+eval:
+  harness: src/eval/evaluate.py
+  val_tasks:
+    denoise: test/denoise/bsd68
+    derain:  test/derain/demo
+    dehaze:  test/dehaze/demo
+  test_sets: [bsd68, derain_demo, dehaze_demo]

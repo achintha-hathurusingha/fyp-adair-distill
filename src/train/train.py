@@ -172,6 +172,21 @@ ARMS: dict[str, dict] = {
     # protocol (test07_b NO-GO with BOTH teachers), so including it would
     # confound an architecture result. Compare against the B0V2 GT-only
     # baseline, single-variable: architecture.
+    # B0V3M: identical to B0V3 except the global operator is interleaved
+    # after every 4th middle block instead of applied once after the
+    # bottleneck. Single variable: number of injection points.
+    "B0V3M": {"norm": {"arch": "student_v3",
+                       "use_dcp_prior": True,
+                       "use_strip_pool": True,
+                       "use_oriented_streak": True,
+                       "mid_strip_every": 4,
+                       "norm_type": "layernorm2d",
+                       "full_res_norm_type": "affine_clamp",
+                       "clamp_bound": 8.0,
+                       "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+               "config": "configs/train/b0v3m.yaml",
+               "desc": "Student v3 + MULTI-LEVEL global context (strip pooling "
+                       "every 4th middle block), GT-only"},
     "B0V3": {"norm": {"arch": "student_v3",
                       "use_dcp_prior": True,
                       "use_strip_pool": True,
@@ -258,6 +273,7 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "M-DEHAZE-KD-FREQ": W16_SIDD, "M-DEHAZE-KD-FEAT": W16_SIDD,
                 "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD,
                 "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD,
+                "B0V3M": W16_SIDD,
                 "B0V3": W16_SIDD,
                 "B0V2-KD-FEAT": W16_SIDD, "B0V2-KD-FEAT-COND": W16_SIDD,
                 "B0V2-KD-FEAT-COND-DECFILM": W16_SIDD,

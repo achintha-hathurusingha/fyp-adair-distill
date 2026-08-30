@@ -157,6 +157,7 @@ class StudentV3(nn.Module):
         use_dcp_prior: bool = True,
         use_strip_pool: bool = True,
         use_oriented_streak: bool = True,
+        mid_strip_every: int | None = None,
     ) -> None:
         super().__init__()
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
@@ -199,8 +200,39 @@ class StudentV3(nn.Module):
             chan *= 2
 
         # -- bottleneck: cheapest, most semantic place for a global operator.
-        self.middle_blks = nn.Sequential(*[blk(chan, norm_type) for _ in range(middle_blk_num)])
-        self.mid_strip = StripPoolingGate(chan) if use_strip_pool else None
+        #
+        # mid_strip_every controls HOW MANY global operators the bottleneck
+        # gets, and it matters more than it looks:
+        #   None (default) -- ONE StripPoolingGate after all middle blocks.
+        #                     This is what B0V3 ran; kept as the default so
+        #                     that run stays exactly reproducible from its
+        #                     recorded commit.
+        #   int N          -- interleave a gate after every Nth middle block,
+        #                     INSIDE the Sequential. A single zero-init
+        #                     residual applied once may simply be too weak to
+        #                     move a 12-block bottleneck. Multi-level
+        #                     injection is also what the literature does and
+        #                     ablates in favour of: PromptIR reports 37.04dB
+        #                     multi-level vs 36.76dB single-point on their own
+        #                     Rain100L ablation, and AdaIR itself places three
+        #                     FreModules rather than one.
+        #
+        # The gates go INSIDE middle_blks (not after it) deliberately: the
+        # trainer attaches its feature-KD hook to model.middle_blks, so
+        # keeping them inside preserves KD compatibility -- the hook still
+        # sees the whole bottleneck's output either way.
+        self.mid_strip_every = mid_strip_every
+        if use_strip_pool and mid_strip_every:
+            mid = []
+            for i in range(middle_blk_num):
+                mid.append(blk(chan, norm_type))
+                if (i + 1) % mid_strip_every == 0:
+                    mid.append(StripPoolingGate(chan))
+            self.middle_blks = nn.Sequential(*mid)
+            self.mid_strip = None          # already interleaved; no trailing gate
+        else:
+            self.middle_blks = nn.Sequential(*[blk(chan, norm_type) for _ in range(middle_blk_num)])
+            self.mid_strip = StripPoolingGate(chan) if use_strip_pool else None
 
         # -- decoder. Channel widths mirror the encoder in reverse.
         decoder_channels = []
@@ -300,6 +332,7 @@ def build_student_v3(cfg: dict, **overrides) -> StudentV3:
         use_dcp_prior=cfg.get("use_dcp_prior", True),
         use_strip_pool=cfg.get("use_strip_pool", True),
         use_oriented_streak=cfg.get("use_oriented_streak", True),
+        mid_strip_every=cfg.get("mid_strip_every"),
     )
     kwargs.update(overrides)
     return StudentV3(**kwargs)
