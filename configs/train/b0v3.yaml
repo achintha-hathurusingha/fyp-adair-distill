@@ -1,0 +1,88 @@
+# B0V3 -- Student v3, GT-only. See reports/student_v3/design.md.
+#
+# Degradation-matched operators placed only where the current student
+# MEASURABLY fails its own GT-only baseline (cond_regression.md):
+#   denoise  ties      -> nothing added
+#   derain   -0.76dB   -> OrientedStreakGate at the 2 highest-res decoder stages
+#   dehaze   -0.55dB   -> dark_channel_prior at the stem + StripPoolingGate
+#                          at bottleneck and first decoder stage
+#
+# GT-ONLY ON PURPOSE. Feature-KD was measured NOT to help on this protocol
+# (kd_feature_multitask: ties on denoise, behind on derain/dehaze; and
+# teacher-experiments/test07_b reproduced the KD NO-GO with BOTH the
+# released and the frequency-fixed teacher, -0.79dB and -0.64dB vs the
+# no-KD baseline respectively). Adding KD here would confound an
+# architecture result with a distillation term that has never yet helped.
+# The comparison this arm is built for is B0V3 vs the B0V2 GT-only
+# baseline, single-variable: architecture.
+
+experiment: b0v3
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  arch: student_v3          # routes build_model() to StudentV3
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  # Normalisation is IDENTICAL to the locked NAFNet config so it is not a
+  # confound. The remaining deep-stage LayerNorm2d is the largest NPU lever
+  # left (~394 CAUTION ops, findings F1) but changing it is a training-
+  # stability experiment of its own (F6), not part of this one.
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+  # degradation-matched operators (all three ablatable independently)
+  use_dcp_prior: true
+  use_strip_pool: true
+  use_oriented_streak: true
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  mixed_task: true
+  tasks:
+    denoise: Train/Denoise
+    derain:  Train/Derain
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+  num_workers: 6
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  total_iters: 90000    # matches B0V2-KD-FEAT exactly, for a like-for-like curve
+  warmup_iters: 3000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 3000
+  ckpt_every: 3000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+eval:
+  harness: src/eval/evaluate.py
+  val_tasks:
+    denoise: test/denoise/bsd68
+    derain:  test/derain/demo
+    dehaze:  test/dehaze/demo
+  test_sets: [bsd68, derain_demo, dehaze_demo]

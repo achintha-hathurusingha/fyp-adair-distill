@@ -166,6 +166,23 @@ ARMS: dict[str, dict] = {
     # design isolating exactly one variable, degradation-conditioning,
     # against the literature's catastrophic-interference prediction for the
     # naive (control) version.
+    # Student v3 (reports/student_v3/design.md): degradation-matched
+    # operators placed only where the student measurably fails its own
+    # GT-only baseline. GT-only by design -- KD has never helped on this
+    # protocol (test07_b NO-GO with BOTH teachers), so including it would
+    # confound an architecture result. Compare against the B0V2 GT-only
+    # baseline, single-variable: architecture.
+    "B0V3": {"norm": {"arch": "student_v3",
+                      "use_dcp_prior": True,
+                      "use_strip_pool": True,
+                      "use_oriented_streak": True,
+                      "norm_type": "layernorm2d",
+                      "full_res_norm_type": "affine_clamp",
+                      "clamp_bound": 8.0,
+                      "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+              "config": "configs/train/b0v3.yaml",
+              "desc": "Student v3: DCP prior + strip pooling (dehaze) + "
+                      "oriented streak filters (derain), GT-only"},
     "B0V2-KD-FEAT": {"norm": {"norm_type": "layernorm2d",
                               "full_res_norm_type": "affine_clamp",
                               "clamp_bound": 8.0,
@@ -241,6 +258,7 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "M-DEHAZE-KD-FREQ": W16_SIDD, "M-DEHAZE-KD-FEAT": W16_SIDD,
                 "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD,
                 "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD,
+                "B0V3": W16_SIDD,
                 "B0V2-KD-FEAT": W16_SIDD, "B0V2-KD-FEAT-COND": W16_SIDD,
                 "B0V2-KD-FEAT-COND-DECFILM": W16_SIDD,
                 "B0V2-KD-FEAT-CACHED": W16_SIDD}
@@ -314,8 +332,21 @@ def build_config(arm: str, iters: int, batch_size: int, lr: float,
     return cfg
 
 
-def build_model(cfg: dict) -> NAFNet:
-    model = NAFNet(**{k: v for k, v in cfg["model"].items()})
+def build_model(cfg: dict):
+    """Build the arm's model. Dispatches on the arch key so StudentV3
+    (src/models/student_v3.py -- degradation-matched operators, see
+    reports/student_v3/design.md) can be selected from a config without
+    disturbing the NAFNet path every existing arm relies on. Absent the
+    key, behaviour is exactly as before."""
+    model_cfg = {k: v for k, v in cfg["model"].items()}
+    arch = model_cfg.pop("arch", "nafnet")
+    if arch == "student_v3":
+        from src.models.student_v3 import StudentV3
+        model = StudentV3(**model_cfg)
+    elif arch == "nafnet":
+        model = NAFNet(**model_cfg)
+    else:
+        raise ValueError(f"Unknown arch {arch!r}. Supported: 'nafnet', 'student_v3'")
     init = cfg.get("residual_init", 0.0)
     if init:
         # Escalation rung Q-E''': non-zero residual scaling. The reference
