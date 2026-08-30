@@ -10,17 +10,29 @@ directly on localhost.
 Replaces the old dashboard/ (both the kd_freq-era single-page one and the
 unified/ one) entirely, rebuilt for the current phase. Tracks per-task PSNR
 (denoise/derain/dehaze) now that the B0V2 eval-gap fix makes those numbers
-real for the first time, across three arms with different roles:
-  B0V2-KD-FEAT           -- control, COMPLETE (90k iters)
+real for the first time, across the arms below.
+
+  B0V3                   -- ACTIVE. Student v3 (reports/student_v3/design.md):
+                             degradation-matched operators placed only where
+                             the student measurably fails its own GT-only
+                             baseline -- DCP prior + strip pooling (dehaze),
+                             oriented streak filters (derain), nothing added
+                             for denoise (it already ties). GT-ONLY by design.
+  B0V2-KD-FEAT           -- KD control, COMPLETE (90k iters)
   B0V2-KD-FEAT-COND      -- treatment v1, STOPPED at it 69,000 (regressed
                              on every task -- reports/kd_feature_multitask/
                              cond_regression.md). Kept visible as the
                              historical record, not an active run.
-  B0V2-KD-FEAT-CACHED    -- speed variant (reports/kd_feature_multitask/
-                             plan_cached_teacher.md): same loss/architecture
-                             as control, response/latent_pre read from a
-                             precomputed cache instead of a live teacher
-                             forward. Currently the only ACTIVE run.
+  B0V2-KD-FEAT-CACHED    -- speed variant, STOPPED at it 9,000. Proved the
+                             2.71x cached-teacher speedup and matched the
+                             live-teacher PSNR curve; stopped once the KD
+                             track itself was retired.
+
+NOTE ON COMPARING B0V3: it is GT-only, so the KD arms are NOT its control.
+Its like-for-like reference is the B0V2 GT-only baseline (30.495 dB @ 90k,
+30.685 @ 285k), shown as a dashed line on the combined-PSNR chart rather
+than as a live arm, because that run is finished and its history predates
+the per-task eval fix.
 
 Usage: python local_server.py
 """
@@ -40,7 +52,8 @@ SSH_KEY = r"C:\Users\User\Documents\FYP\Achintha"
 HOSTS = {
     "devon": {
         "target": "minura@192.248.10.68",
-        "arms": ["b0v2_kd_feat/B0V2-KD-FEAT",
+        "arms": ["b0v3/B0V3",
+                "b0v2_kd_feat/B0V2-KD-FEAT",
                 "b0v2_kd_feat_cond/B0V2-KD-FEAT-COND",
                 "b0v2_kd_feat_cached/B0V2-KD-FEAT-CACHED"],
     },

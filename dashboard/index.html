@@ -83,6 +83,7 @@
   .card.control { border-top: 3px solid var(--control); }
   .card.treat { border-top: 3px solid var(--treat); }
   .card.cached { border-top: 3px solid var(--cached); }
+  .card.v3 { border-top: 3px solid var(--good); }
   .card-head { padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; }
   .card-head .name { font-weight: 700; font-size: 14.5px; }
   .card-head .role { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -154,7 +155,7 @@
 <header>
   <div>
     <h1>kd_feature_multitask</h1>
-    <div class="sub">control (complete) · treatment v1 (stopped, regressed) · cached-teacher speed variant (active)</div>
+    <div class="sub">B0V3 student v3, GT-only (ACTIVE) · KD arms retained as historical record — KD measured NOT to help (test07_b NO-GO, both teachers)</div>
   </div>
   <div id="hosts"></div>
 </header>
@@ -169,17 +170,23 @@
 <script>
 const TOTAL_ITERS = 90000;
 const ARM_META = {
-  "B0V2-KD-FEAT": {role: "control · complete", css: "control", label: "B0V2-KD-FEAT",
+  "B0V3": {role: "student v3 · GT-only · ACTIVE", css: "v3", label: "B0V3"},
+  "B0V2-KD-FEAT": {role: "KD control · complete", css: "control", label: "B0V2-KD-FEAT",
     forceStatus: "complete"},
   "B0V2-KD-FEAT-COND": {role: "treatment v1 · stopped, regressed", css: "treat",
     label: "B0V2-KD-FEAT-COND", forceStatus: "stopped"},
-  "B0V2-KD-FEAT-CACHED": {role: "speed variant · active", css: "cached",
-    label: "B0V2-KD-FEAT-CACHED"},
+  "B0V2-KD-FEAT-CACHED": {role: "speed variant · stopped (KD track retired)", css: "cached",
+    label: "B0V2-KD-FEAT-CACHED", forceStatus: "stopped"},
 };
 const TASKS = ["denoise", "derain", "dehaze"];
 const ARM_COLOR = {
+  "B0V3": "#33c17a",
   "B0V2-KD-FEAT": "#6b7fd7", "B0V2-KD-FEAT-COND": "#e0a44a", "B0V2-KD-FEAT-CACHED": "#33b0c1",
 };
+// B0V2 GT-only baseline -- B0V3's like-for-like reference (B0V3 is GT-only,
+// so the KD arms are NOT its control). Combined PSNR only: that run predates
+// the per-task eval fix, so no trustworthy per-task split exists for it.
+const GT_BASELINE = {psnr_90k: 30.495, psnr_285k: 30.685};
 // AdaIR teacher, real eval on the same 3 held-out sets (bsd68/derain-demo/dehaze-demo),
 // this session -- shown as a dashed reference ceiling, matching the old dashboard's style.
 const TEACHER_PSNR = {
@@ -247,29 +254,45 @@ function renderGpus(hosts) {
 }
 
 function renderThroughput(hosts) {
+  // The active question is no longer teacher throughput (that track is
+  // retired) -- it is whether B0V3's degradation-matched operators beat the
+  // GT-only baseline they were designed against. B0V3 is GT-only, so the KD
+  // arms are NOT its control; GT_BASELINE is.
   const el = document.getElementById("throughput");
-  const control = findArm(hosts, "B0V2-KD-FEAT");
-  const cached = findArm(hosts, "B0V2-KD-FEAT-CACHED");
-  const cL = control && control.latest, kL = cached && cached.latest;
-  if (!cL || !cL.elapsed_s || !kL || !kL.elapsed_s) {
-    el.innerHTML = `<h2>Throughput — live vs cached teacher</h2>
-      <div class="empty">Waiting for both arms to have at least one checkpoint with timing data...</div>`;
+  const v3 = findArm(hosts, "B0V3");
+  const L = v3 && v3.latest;
+  if (!L || L.psnr === undefined) {
+    el.innerHTML = `<h2>B0V3 vs GT-only baseline — combined PSNR</h2>
+      <div class="empty">Waiting for B0V3's first checkpoint (val_every=3000 iters)...</div>`;
     return;
   }
-  const controlRate = cL.iteration / cL.elapsed_s;
-  const cachedRate = kL.iteration / kL.elapsed_s;
-  const speedup = cachedRate / controlRate;
-  el.innerHTML = `<h2>Throughput — live-teacher control vs cached-teacher speed variant</h2>
+  const it = L.iteration || 0;
+  const rate = L.elapsed_s ? (it / L.elapsed_s) : null;
+  const etaH = (rate && it < TOTAL_ITERS) ? ((TOTAL_ITERS - it) / rate / 3600) : null;
+  // Compare like-for-like: the baseline's 90k number against B0V3 only once
+  // B0V3 has also reached 90k. Before that, label the delta as provisional
+  // rather than implying a finished comparison.
+  const d = L.psnr - GT_BASELINE.psnr_90k;
+  const done = it >= TOTAL_ITERS;
+  el.innerHTML = `<h2>B0V3 vs GT-only baseline — combined PSNR</h2>
     <div class="tp-row">
-      <div class="tp-stat"><div class="v">${controlRate.toFixed(3)}</div><div class="k">control it/s (live teacher)</div></div>
+      <div class="tp-stat"><div class="v">${GT_BASELINE.psnr_90k.toFixed(3)}</div><div class="k">B0V2 GT-only @ 90k</div></div>
       <div class="tp-arrow">&rarr;</div>
-      <div class="tp-stat"><div class="v">${cachedRate.toFixed(3)}</div><div class="k">cached it/s</div></div>
-      <div class="tp-speedup"><div class="v">${speedup.toFixed(2)}&times;</div><div class="k">speedup so far</div></div>
+      <div class="tp-stat"><div class="v">${L.psnr.toFixed(3)}</div><div class="k">B0V3 @ ${it.toLocaleString()}</div></div>
+      <div class="tp-speedup">
+        <div class="v" style="color:${d >= 0 ? 'var(--good)' : 'var(--bad)'}">${d >= 0 ? '+' : ''}${d.toFixed(3)}</div>
+        <div class="k">dB ${done ? 'at matched 90k' : '(provisional — not yet matched)'}</div>
+      </div>
     </div>
-    <div class="note" style="margin-top:8px">profile_step_cost.py predicted ~4-5x from eliminating the live teacher forward (~78% of a step). Control rate is its full-run average (90k iters); cached rate is from ${kL.iteration.toLocaleString()} iterations so far.</div>`;
+    <div class="note" style="margin-top:8px">
+      ${done
+        ? 'Matched-iteration comparison (both at 90k). Single variable: architecture.'
+        : `B0V3 is at ${it.toLocaleString()}/${TOTAL_ITERS.toLocaleString()} — the baseline figure is its <em>final</em> 90k value, so this delta flatters B0V3 until it also reaches 90k.`}
+      ${rate ? ` · ${rate.toFixed(2)} it/s${etaH ? ` · ETA ~${etaH.toFixed(1)}h` : ''}` : ''}
+    </div>`;
 }
 
-function drawLineChart(canvas, series, refLine) {
+function drawLineChart(canvas, series, refLine, refLine2) {
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.clientWidth || 420, cssH = 220;
   canvas.width = cssW * dpr; canvas.height = cssH * dpr;
@@ -286,7 +309,10 @@ function drawLineChart(canvas, series, refLine) {
     ctx.fillText("no checkpoints yet", cssW / 2, cssH / 2);
     return;
   }
-  const xs = allPts.map(p => p.x), ys = allPts.map(p => p.y).concat(refLine ? [refLine] : []);
+  const xs = allPts.map(p => p.x);
+  const ys = allPts.map(p => p.y)
+    .concat(refLine ? [refLine] : [])
+    .concat(refLine2 ? [refLine2] : []);
   let xMax = Math.max(1, ...xs);
   let yMin = Math.min(...ys) - 1, yMax = Math.max(...ys) + 1;
   if (yMax - yMin < 4) { const mid = (yMax + yMin) / 2; yMin = mid - 2; yMax = mid + 2; }
@@ -310,10 +336,16 @@ function drawLineChart(canvas, series, refLine) {
     ctx.fillText(Math.round(v).toLocaleString(), X(v), cssH - 6);
   }
 
-  // teacher reference (dashed)
+  // teacher reference (dashed amber) -- the ceiling
   if (refLine !== undefined) {
     ctx.strokeStyle = "#e9a723"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(padL, Y(refLine)); ctx.lineTo(cssW - padR, Y(refLine)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // GT-only baseline (dashed grey) -- B0V3's actual like-for-like control
+  if (refLine2 !== undefined) {
+    ctx.strokeStyle = "#8a93a8"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(padL, Y(refLine2)); ctx.lineTo(cssW - padR, Y(refLine2)); ctx.stroke();
     ctx.setLineDash([]);
   }
 
@@ -342,6 +374,7 @@ function renderCharts(hosts) {
       <div class="chart-legend">
         ${arms.map(a => `<span class="item"><span class="swatch" style="background:${ARM_COLOR[a.name]}"></span>${ARM_META[a.name].label}</span>`).join("")}
         <span class="item" style="color:#e9a723"><span class="swatch dashed" style="color:#e9a723"></span>AdaIR teacher (real eval, same held-out sets)</span>
+        ${def.key === "psnr" ? `<span class="item" style="color:#8a93a8"><span class="swatch dashed" style="color:#8a93a8"></span>B0V2 GT-only baseline @90k (B0V3's control)</span>` : ""}
       </div>
     </div>`).join("");
 
@@ -352,7 +385,8 @@ function renderCharts(hosts) {
         .filter(h => h[def.key] !== undefined && h.iteration !== undefined)
         .map(h => ({x: h.iteration, y: h[def.key]})),
     }));
-    drawLineChart(document.getElementById(`chart-${def.key}`), series, TEACHER_PSNR[def.key]);
+    drawLineChart(document.getElementById(`chart-${def.key}`), series, TEACHER_PSNR[def.key],
+                  def.key === "psnr" ? GT_BASELINE.psnr_90k : undefined);
   }
 }
 
@@ -459,7 +493,7 @@ async function tick() {
   renderCharts(hosts);
 
   const cardsEl = document.getElementById("cards");
-  const order = ["B0V2-KD-FEAT", "B0V2-KD-FEAT-COND", "B0V2-KD-FEAT-CACHED"];
+  const order = ["B0V3", "B0V2-KD-FEAT", "B0V2-KD-FEAT-COND", "B0V2-KD-FEAT-CACHED"];
   cardsEl.innerHTML = order.map(arm => renderCard(arm, findArm(hosts, arm))).join("");
 }
 
