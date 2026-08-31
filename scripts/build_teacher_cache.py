@@ -54,6 +54,11 @@ PATCH = 128
 #: Per-task pool sizes from plan_cached_teacher.md's own sizing table.
 TASK_POOL_SIZES = {"denoise": 80_000, "derain": 20_000, "dehaze": 80_000}
 
+#: `data:` section of the training config this cache is being built FOR.
+#: Populated in main() from --config; the cache is only valid for arms
+#: whose data section matches it.
+_DATA_CFG: dict = {}
+
 
 def build_task_loader(task: str, source, n_rows: int, batch_size: int,
                       num_workers: int, seed: int):
@@ -65,8 +70,16 @@ def build_task_loader(task: str, source, n_rows: int, batch_size: int,
     kwargs = dict(batch_size=batch_size, patch_size=PATCH,
                  num_workers=num_workers, seed=seed, length=n_rows)
     if task == "denoise":
-        kwargs["sigma_range"] = (0.0, 55.0)
-        kwargs["clean_prob"] = 0.05
+        # Sampling now MIRRORS the training config rather than being hardcoded.
+        # v1 hardcoded sigma_range=(0,55)+clean_prob=0.05 while every current arm
+        # uses discrete [15,25,50]; a cache built that way trains an arm on a
+        # different noise distribution from its own control. See the module
+        # docstring.
+        if _DATA_CFG.get("sigma_range") is not None:
+            kwargs["sigma_range"] = tuple(_DATA_CFG["sigma_range"])
+            kwargs["clean_prob"] = float(_DATA_CFG.get("clean_prob", 0.0))
+        else:
+            kwargs["sigmas"] = tuple(_DATA_CFG.get("sigmas", (15, 25, 50)))
     return build_multitask_loader(sources, **kwargs)
 
 
@@ -124,6 +137,14 @@ def main() -> None:
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
 
+    global _DATA_CFG
+    _cfg = yaml.safe_load(Path(args.config).read_text())
+    _DATA_CFG = _cfg.get("data", {}) or {}
+    print(f"[cache] mirroring data: from {args.config}")
+    print(f"[cache]   sigmas={_DATA_CFG.get('sigmas')} "
+          f"sigma_range={_DATA_CFG.get('sigma_range')} "
+          f"clean_prob={_DATA_CFG.get('clean_prob')}")
+
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -170,6 +191,10 @@ def main() -> None:
 
     index = {
         "n": n, "task_ranges": task_ranges, "sigma": sigmas,
+        "built_for_config": args.config,
+        "data_cfg": {k: _DATA_CFG.get(k) for k in
+                     ("sigmas", "sigma_range", "clean_prob", "patch_size",
+                      "tasks", "mixed_task")},
         "patch": PATCH, "latent_shape": [LATENT_C, LATENT_H, LATENT_W],
         "task_ids": {"denoise": 0, "derain": 1, "dehaze": 2},
     }
