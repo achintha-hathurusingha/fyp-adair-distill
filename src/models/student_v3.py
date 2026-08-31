@@ -126,6 +126,9 @@ from src.models.theory_blocks import (
 __all__ = ["StudentV3", "build_student_v3"]
 
 
+from src.models.reparam_oriented import ReparamOrientedBlock  # noqa: E402
+
+
 class StudentV3(nn.Module):
     """U-shaped restoration network: NAFNet skeleton + degradation-matched
     operators placed only where the baseline measurably fails.
@@ -158,6 +161,13 @@ class StudentV3(nn.Module):
         use_strip_pool: bool = True,
         use_oriented_streak: bool = True,
         mid_strip_every: int | None = None,
+        # --- S3.1 reparameterizable oriented block (plan Phase 3) ---
+        # Default OFF so every pre-existing arm stays byte-identical; S3.3
+        # turns it on and ablates placement one variable at a time.
+        use_reparam_oriented: bool = False,
+        reparam_k: int = 11,          # fixed by S0.1's oracle ceiling
+        reparam_stages: tuple[int, ...] | list[int] | None = None,
+        reparam_middle: bool = False,
     ) -> None:
         super().__init__()
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
@@ -168,6 +178,7 @@ class StudentV3(nn.Module):
         self.use_dcp_prior = use_dcp_prior
         self.use_strip_pool = use_strip_pool
         self.use_oriented_streak = use_oriented_streak
+        self.use_reparam_oriented = use_reparam_oriented
         self.enc_clamp_stages = tuple(enc_clamp_stages or (3,))
 
         def stage_norm(stage_idx: int, n_stages: int, *, decoder: bool) -> str:
@@ -272,6 +283,29 @@ class StudentV3(nn.Module):
         else:
             self.streak_gates = None
 
+        # S3.1 block. Placed by default at the same two highest-resolution
+        # decoder stages as the streak gates: S0.1 measured orientation as
+        # worth +0.385 dB on derain and ~0 on denoise/dehaze, and rain streaks
+        # are 3-10 px structures that are not resolvable at coarser stages.
+        if use_reparam_oriented:
+            stages = (tuple(reparam_stages) if reparam_stages is not None
+                      else (len(dec_blk_nums) - 2, len(dec_blk_nums) - 1))
+            bad = [i for i in stages if not 0 <= i < len(dec_blk_nums)]
+            if bad:
+                raise ValueError(
+                    f"reparam_stages {bad} out of range for "
+                    f"{len(dec_blk_nums)} decoder stages")
+            self.reparam_stages = tuple(stages)
+            self.reparam_blocks = nn.ModuleDict({
+                str(i): ReparamOrientedBlock(decoder_channels[i], k=reparam_k)
+                for i in self.reparam_stages})
+            self.mid_reparam = (ReparamOrientedBlock(chan, k=reparam_k)
+                                if reparam_middle else None)
+        else:
+            self.reparam_stages = ()
+            self.reparam_blocks = None
+            self.mid_reparam = None
+
         self.padder_size = 2 ** len(enc_blk_nums)
 
     def forward(self, inp: torch.Tensor) -> torch.Tensor:
@@ -292,6 +326,8 @@ class StudentV3(nn.Module):
         x = self.middle_blks(x)
         if self.mid_strip is not None:
             x = self.mid_strip(x)
+        if self.mid_reparam is not None:
+            x = self.mid_reparam(x)
 
         for i, (dec, up, skip) in enumerate(zip(self.decoders, self.ups, reversed(skips))):
             x = up(x)
@@ -301,6 +337,8 @@ class StudentV3(nn.Module):
                 x = self.dec_strip(x)
             if self.streak_gates is not None and str(i) in self.streak_gates:
                 x = self.streak_gates[str(i)](x)
+            if self.reparam_blocks is not None and str(i) in self.reparam_blocks:
+                x = self.reparam_blocks[str(i)](x)
 
         x = self.ending(x)
         x = x + inp

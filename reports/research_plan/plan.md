@@ -254,7 +254,20 @@ Condition on a **different** tensor (decoder-side), with a matched control.
 
 ### PHASE 3 — Spatial frequency-mining block
 
-**S3.1 · Build the block, reparameterizable by construction** `[ ]`
+**S3.1 · Build the block, reparameterizable by construction** `[x]` **DONE**
+`src/models/reparam_oriented.py`; wired into StudentV3 behind
+`use_reparam_oriented` (default **OFF**, so every existing arm is bit-identical).
+Checks: `scripts/smoke_reparam_oriented.py`, `scripts/smoke_reparam_oriented_v3.py`.
+- **Byte-identity holds**: with the block off, StudentV3's output sha256 matches
+  the pre-change golden exactly, same 7,447,331 params and 688 state_dict keys.
+  With it on, zero-init residual makes it bit-identical at init too.
+- Cost: **+14,960 params** at the two highest-resolution decoder stages (dim 32/16,
+  k=11); +153,456 if the middle placement is also enabled.
+- One real property found and documented: `fuse` is zero-init, so
+  d(out)/d(core) = 0 and the **core is gradient-isolated at exactly step 0**. It
+  bootstraps immediately (fuse does get gradient, so from step 1 all 18 core
+  tensors train). Same idiom as `OrientedStreakGate`; asserted both halves so a
+  future change that leaves the core permanently frozen fails loudly.
 Parallel separable oriented kernels (0/45/90/135 + isotropic), learnable
 per-band coefficients, combined **linearly** so branches can merge.
 - **Deliver:** module + operators-off byte-identity test (the no-confound check
@@ -275,7 +288,7 @@ per-band coefficients, combined **linearly** so branches can merge.
     is ever made task-conditional, it is rain-only.
 - ~2h dev. Depends: S0.1 `[x]`, S0.2 `[x]` — **both cleared**.
 
-**S3.2 · Prove the merge is exact** `[~]` **← GATE — pre-satisfied on the stub**
+**S3.2 · Prove the merge is exact** `[x]` **GATE PASSED on the real module**
 Merge multi-branch → one conv; assert max |diff| < 1e-5 on random input; export
 and confirm a single Conv in the graph.
 - **Kill:** merge not exact → a nonlinearity has crept in; redesign.
@@ -286,7 +299,12 @@ and confirm a single Conv in the graph.
   linear convolution** of the two branch kernels, not their cross-correlation —
   `conv2d` is correlation, so the merge flips one kernel. A merge that gets that
   wrong still passes an interior-only test.
-- **Still required against the real S3.1 module** once it lands in `src/models/`.
+- **DONE 2026-08-31 against `src/models/reparam_oriented.py`:** merge exact to
+  **2.4e-06** worst case across dim {16,32,64} x inputs {13x13, 32x32} (13x13
+  with k=11 is almost entirely boundary); block-level merge 7.2e-07; ORT(merged)
+  vs eager 7.2e-07. Merged CORE exports as **exactly one Conv node**; merged
+  block is Conv x2 + Add x1, **zero UNKNOWN and zero CAUTION** on all three
+  backends. Training may proceed.
 - ~1h. Depends: S3.1. **Do not train until this passes.**
 
 **S3.3 · Train with the block, ablate placement** `[ ]`
