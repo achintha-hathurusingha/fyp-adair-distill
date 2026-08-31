@@ -1,0 +1,86 @@
+{
+  "depthwise_3x3": {
+    "latency_ms": 1.159,
+    "compute_units": {
+      "NPU": 7
+    },
+    "npu_fallback_layers": 0,
+    "error": null,
+    "stage_failed": null,
+    "job_urls": {
+      "quantize": "https://workbench.aihub.qualcomm.com/jobs/j5mm9le75/",
+      "compile": "https://workbench.aihub.qualcomm.com/jobs/jp8xjk0qg/",
+      "profile": "https://workbench.aihub.qualcomm.com/jobs/jgk46k7vp/"
+    }
+  },
+  "depthwise_5x5": {
+    "latency_ms": 1.17,
+    "compute_units": {
+      "NPU": 7
+    },
+    "npu_fallback_layers": 0,
+    "error": null,
+    "stage_failed": null,
+    "job_urls": {
+      "quantize": "https://workbench.aihub.qualcomm.com/jobs/jgzmz0o4p/",
+      "compile": "https://workbench.aihub.qualcomm.com/jobs/jp1jomynp/",
+      "profile": "https://workbench.aihub.qualcomm.com/jobs/jgd36me6p/"
+    }
+  },
+  "depthwise_7x7": {
+    "latency_ms": 1.197,
+    "compute_units": {
+      "NPU": 7
+    },
+    "npu_fallback_layers": 0,
+    "error": null,
+    "stage_failed": null,
+    "job_urls": {
+      "quantize": "https://workbench.aihub.qualcomm.com/jobs/j5mm9lq75/",
+      "compile": "https://workbench.aihub.qualcomm.com/jobs/jpr0x78kp/",
+      "profile": "https://workbench.aihub.qualcomm.com/jobs/jp2woz06p/"
+    }
+  },
+  "depthwise_9x9": {
+    "latency_ms": 1.692,
+    "compute_units": {
+      "NPU": 7
+    },
+    "npu_fallback_layers": 0,
+    "error": null,
+    "stage_failed": null,
+    "job_urls": {
+      "quantize": "https://workbench.aihub.qualcomm.com/jobs/jgk46kqvp/",
+      "compile": "https://workbench.aihub.qualcomm.com/jobs/jglxwq22g/",
+      "profile": "https://workbench.aihub.qualcomm.com/jobs/jp39or1mp/"
+    }
+  },
+  "depthwise_11x11": {
+    "latency_ms": 1.933,
+    "compute_units": {
+      "NPU": 7
+    },
+    "npu_fallback_layers": 0,
+    "error": null,
+    "stage_failed": null,
+    "job_urls": {
+      "quantize": "https://workbench.aihub.qualcomm.com/jobs/jgzmz0j4p/",
+      "compile": "https://workbench.aihub.qualcomm.com/jobs/j5w7yr34g/",
+      "profile": "https://workbench.aihub.qualcomm.com/jobs/jg9moqym5/"
+    }
+  },
+  "dense_3x3_CONTROL": {
+    "latency_ms": 1.192,
+    "compute_units": {
+      "NPU": 7
+    },
+    "npu_fallback_layers": 0,
+    "error": null,
+    "stage_failed": null,
+    "job_urls": {
+      "quantize": "https://workbench.aihub.qualcomm.com/jobs/jgnn1wmjg/",
+      "compile": "https://workbench.aihub.qualcomm.com/jobs/jp2woz96p/",
+      "profile": "https://workbench.aihub.qualcomm.com/jobs/jpyx8yj05/"
+    }
+  }
+}
