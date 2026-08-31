@@ -83,6 +83,19 @@ def diagonal_mask(k: int, band: int, main: bool) -> torch.Tensor:
     return m
 
 
+def delta_kernel_(weight: torch.Tensor) -> None:
+    """In-place delta init for a depthwise kernel: centre tap 1, rest 0.
+
+    Makes conv(x) = x, so a zero-initialised residual gate scales up a copy of
+    the signal instead of a frozen random kernel. See the module docstring --
+    this is the fix for the defect that killed B0V3-KD-K11.
+    """
+    with torch.no_grad():
+        weight.zero_()
+        kh, kw = weight.shape[-2:]
+        weight[:, 0, kh // 2, kw // 2] = 1.0
+
+
 class ReparamOrientedCore(nn.Module):
     """Multi-branch oriented depthwise bank collapsing to ONE depthwise conv."""
 
@@ -111,6 +124,14 @@ class ReparamOrientedCore(nn.Module):
         # per-channel band coefficients; linear, therefore mergeable
         self.coef = nn.Parameter(torch.ones(5, dim))
         self.id_coef = nn.Parameter(torch.ones(dim))
+        # Delta init, expressed through the bank: zero every branch and keep the
+        # identity branch at 1, so the MERGED kernel is delta and core(x) = x.
+        # Without this, a zero-init fuse scales up a frozen random bank -- the
+        # defect that killed B0V3-KD-K11. See the module docstring.
+        with torch.no_grad():
+            for c in (self.h_long, self.h_short, self.v_long, self.v_short,
+                      self.d45, self.d135, self.iso):
+                c.weight.zero_()
         self._apply_mask()
 
     def _apply_mask(self) -> None:
@@ -204,6 +225,11 @@ class PlainLargeKernelBlock(nn.Module):
         self.dim, self.k = dim, k
         self.conv = nn.Conv2d(dim, dim, k, padding=k // 2, groups=dim, bias=False)
         self.fuse = nn.Conv2d(dim, dim, 1, bias=False)
+        # Delta, NOT Kaiming: with fuse zero-initialised the conv receives no
+        # gradient at step 0, so whatever it holds gets amplified unchanged.
+        # Kaiming here meant amplifying a random 11x11 blur into the decoder,
+        # which is what killed B0V3-KD-K11 (-3.026 dB on dehaze).
+        delta_kernel_(self.conv.weight)
         nn.init.zeros_(self.fuse.weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

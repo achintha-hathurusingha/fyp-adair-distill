@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # S3.3 sequential long run. One GPU, three arms, ~12h each.
 #
+# _v2: the FIRST ATTEMPT WAS INVALID. Both blocks zero-initialised the 1x1 fuse,
+# which left the depthwise kernel with ZERO gradient (dL/d(conv) is proportional
+# to fuse.weight = 0), so early training amplified a frozen random Kaiming kernel
+# into the decoder -- a random blur. B0V3-KD-K11 was 1.335 dB behind its control
+# at 15k with -3.026 on dehaze and -0.037 on denoise. Fixed by delta-initialising
+# the kernel so conv(x) = x at init; see runs/s33_b0v3_kd_k11/WHY_THIS_FAILED.md.
+# Output dirs are suffixed _v2 so the failed run stays on disk as evidence.
+#
 #   B0V3-KD-K11      plain 11x11 depthwise   <- receptive-field CONTROL
 #   B0V3-KD-ORI      oriented block          <- treatment
 #   B0V3-KD-ORI-MID  oriented + middle       <- placement
@@ -18,7 +26,7 @@ LOG=/tmp/s33_sequence_${STAMP}.log
 echo "S3.3 sequence started $(date)" | tee "$LOG"
 
 for ARM in B0V3-KD-K11 B0V3-KD-ORI B0V3-KD-ORI-MID; do
-  OUT="runs/s33_$(echo "$ARM" | tr 'A-Z-' 'a-z_')"
+  OUT="runs/s33_$(echo "$ARM" | tr 'A-Z-' 'a-z_')_v2"
   echo "" | tee -a "$LOG"
   echo "=== $ARM -> $OUT  started $(date) ===" | tee -a "$LOG"
 
