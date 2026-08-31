@@ -222,7 +222,7 @@ dilution.
 ### PHASE 2 — Richer degradation representation
 
 **S2.1 · DFC-style representation from decoder features** `[ ]`
-**← CRITERION BROKEN BY S0.3, REDEFINE BEFORE RUNNING**
+**← criterion REDEFINED on severity; stage is live**
 Band-wise residual-to-degraded ratios on *decoder features*, using the
 **separable oriented** bands S0.1 validated. Residual estimated as
 degraded-minus-intermediate-restoration (DFC's trick — no GT at inference).
@@ -240,8 +240,26 @@ degraded-minus-intermediate-restoration (DFC's trick — no GT at inference).
      representation must generalise rather than recall.
   3. **Downstream PSNR** rather than probe accuracy — the only metric immune to
      ceiling effects, and the one we actually care about.
-- **Do (1) before committing to this stage at all** — if severity is also
-  saturated, the whole "richer representation" branch is dead cheaply.
+- **(1) DONE — and severity is NOT saturated, so this stage lives.**
+  `scripts/severity_probe.py` → `reports/reparam_gate/s2_1_severity.md`.
+  Severity R² from decoder features at PCA-16: denoise **0.979** (saturated,
+  +0.015 available), dehaze **0.646** (+0.096), derain **0.470** (+0.114).
+  Contrast with type ID, which is 99.67% at *two* dims: **type is free,
+  magnitude is expensive** — 2 dims identify which degradation perfectly and
+  say nothing about how much (dehaze severity R² 0.012 at 2 dims). Shuffled-
+  target control at −0.06 on all three. Derain is worst on both axes (severity
+  0.470, teacher gap 3.482 dB), though with n=3 that is a suggestion, not a
+  relationship. Note R² *collapses* at full 496 dims (derain −0.256): PCA is
+  doing real regularisation, so "use all the features" is not an option.
+- **NEW KILL CRITERION** (replacing the withdrawn +2pp-on-type bar): a DFC-style
+  representation at **16 dims** must beat PCA-16's severity R² by **≥ +0.10** on
+  derain or dehaze — i.e. reach at 16 dims what PCA needs 64 dims for
+  (derain 0.470 → 0.584, dehaze 0.646 → 0.742). +0.10 is ~2 fold-sd, and the
+  target is exactly the headroom that dimension alone buys, so a representation
+  that merely matches "more PCA dims" earns no credit.
+- Knock-on for **S2.2**: conditioning on a code that saturates at 2 dims was
+  never going to carry information the network lacks, which may be part of why
+  v1 FiLM regressed. A severity-carrying code is a different proposition.
 - CPU ~3h. Depends: S0.1 `[x]`, S0.3 `[x]`.
 
 **S2.2 · Conditioning that does not fight the KD loss** `[ ]`
@@ -307,7 +325,12 @@ and confirm a single Conv in the graph.
   backends. Training may proceed.
 - ~1h. Depends: S3.1. **Do not train until this passes.**
 
-**S3.3 · Train with the block, ablate placement** `[ ]`
+**S3.3 · Train with the block, ablate placement** `[~]` **RUNNING**
+4 arms, not 3: `B0V3-KD-FEAT` (no block, done) · `B0V3-KD-K11` (plain 11x11
+CONTROL) · `B0V3-KD-ORI` · `B0V3-KD-ORI-MID`. The plain-k11 control was added
+because the decoder is 3x3 and the block is 11x11, so block-vs-no-block
+confounds orientation with receptive field. Launched 2026-08-31 23:14,
+sequential, ~12h each (`scripts/run_s33.sh`).
 Middle-only vs decoder-only vs both, one variable at a time.
 - **Success:** > +0.07 dB over the matched no-block control.
 - **Caution from S0.1 — read before believing a positive.** On both corpora we
