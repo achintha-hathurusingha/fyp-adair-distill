@@ -28,25 +28,29 @@ tasks = ["Denoise", "Derain", "Dehaze"]
 teacher = [31.253, 39.725, 36.928]
 baseline = [30.686, 36.828, 34.645]  # GT-only, 285k iters
 kdfeat = [30.693, 36.071, 34.100]    # +response+feature KD, 90k iters
+# Student v3 (degradation-matched operators), GT-only, seed1 @ 90k -- read from
+# runs/b0v3/B0V3/B0V3_seed1_20260830_180851/history.json
+v3 = [30.649, 36.129, 33.781]
 
 x = np.arange(len(tasks))
-w = 0.26
+w = 0.20
 fig, ax = plt.subplots(figsize=(9, 5.5))
-b1 = ax.bar(x - w, teacher, w, label="AdaIR Teacher (28.78M params)", color=NAVY)
-b2 = ax.bar(x, baseline, w, label="B0V2 GT-only (285k iters)", color=GREY)
-b3 = ax.bar(x + w, kdfeat, w, label="B0V2-KD-FEAT (90k iters)", color=AMBER)
+b1 = ax.bar(x - 1.5 * w, teacher, w, label="AdaIR Teacher (28.78M params)", color=NAVY)
+b2 = ax.bar(x - 0.5 * w, baseline, w, label="B0V2 GT-only (285k iters)", color=GREY)
+b3 = ax.bar(x + 0.5 * w, kdfeat, w, label="B0V2-KD-FEAT (90k iters)", color=AMBER)
+b4 = ax.bar(x + 1.5 * w, v3, w, label="Student v3 GT-only (90k iters)", color=TEAL)
 
-for bars in (b1, b2, b3):
+for bars in (b1, b2, b3, b4):
     for b in bars:
         ax.text(b.get_x() + b.get_width() / 2, b.get_height() + 0.15,
-                f"{b.get_height():.2f}", ha="center", fontsize=8.5, weight="bold")
+                f"{b.get_height():.2f}", ha="center", fontsize=7.4, weight="bold")
 
 ax.set_xticks(x)
 ax.set_xticklabels(tasks, fontsize=11)
 ax.set_ylabel("PSNR (dB)", fontsize=10.5)
 ax.set_ylim(28, 42)
 ax.set_title("Student vs teacher, per task — real evaluation, same harness\n"
-              "(GT-only/KD-FEAT iteration counts differ 285k vs 90k -- not a matched comparison, see report)",
+              "(285k vs 90k iters is NOT matched. v3 vs KD-FEAT both 90k, so that pair IS matched.)",
               fontsize=10.5, weight="bold", color=NAVY, pad=12)
 ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
 ax.spines[["top", "right"]].set_visible(False)
