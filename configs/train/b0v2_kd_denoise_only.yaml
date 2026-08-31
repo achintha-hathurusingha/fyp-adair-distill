@@ -1,0 +1,108 @@
+# B0V2-KD-FEAT — the CONTROL arm for kd_feature_multitask (see
+# reports/kd_feature_multitask/plan.md). Plain extension of kd_feat's
+# validated dehaze-only result (33.695dB, best PSNR, full 60k iters — see
+# configs/train/m_dehaze_kd_feat.yaml) to the REAL 3-degradation protocol:
+# same feature-KD loss on the teacher's `latent_pre`, full B0V2 data mix, NO
+# degradation-conditioning. This is the naive version the multi-task
+# distillation literature (reviewed in plan.md section 2) predicts may show
+# catastrophic interference once denoise/derain are added alongside dehaze —
+# worth running even if it underperforms, since it is the honest baseline
+# B0V2-KD-FEAT-COND (the conditioned treatment arm) needs to beat to justify
+# the added DegradationHead/FiLM complexity.
+#
+# TEACHER: `all_in_one` (adair3d.ckpt), NOT one of the 3 single-degradation
+# specialists kd_feat's dehaze-only demo used. A specialist teacher has
+# nothing sensible to say about the other two degradations' inputs; the
+# all-in-one checkpoint is trained on all three, matching this arm's own
+# scope exactly. See configs/paths.yaml `teachers.all_in_one`.
+#
+# Everything else — architecture, data mix, schedule — is B0V2's own locked
+# baseline (configs/train/b0v2_multitask.yaml), unchanged, so a delta against
+# it is attributable to the added distillation terms and nothing else.
+
+experiment: b0v2_kd_denoise_only
+model: configs/model/nafnet_locked.yaml
+
+arch:
+  width: 16
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  norm_type: layernorm2d
+  full_res_norm_type: affine_clamp
+  clamp_bound: 8.0
+  enc_clamp_stages: [3]
+  deep_clamp_bound: 32.0
+
+data:
+  patch_size: 128
+  batch_size: 16
+  sigmas: [15, 25, 50]
+  sigma_range: [0.0, 55.0]
+  clean_prob: 0.05
+  mixed_task: true
+  tasks:
+    denoise: Train/Denoise
+    derain:  Train/Derain
+    dehaze:
+      input:  Train/Dehaze/synthetic
+      target: Train/Dehaze/clear
+  num_workers: 6
+  cache_budget_gb: 0.75
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.9]
+  grad_clip: 1.0
+
+schedule:
+  name: cosine
+  # Ablation scale, not B0V2's own 300k main-training scale (plan.md section
+  # 5: "a shorter iteration budget... is worth considering for the first
+  # pass"). kd_feat's own dehaze-only result was clear by 60k on a
+  # single-degradation stream; this stream is 3x as varied per epoch at the
+  # same batch size, so 90k gives each degradation roughly the same number of
+  # effective passes kd_feat's 60k gave dehaze alone.
+  total_iters: 90000
+  warmup_iters: 3000
+  min_lr: 1.0e-6
+
+train:
+  accum_steps: 2
+  ema_decay: 0.999
+  amp: true
+  val_every: 3000
+  ckpt_every: 3000
+  seeds: [0]
+  track_clamp_engagement: true
+
+loss:
+  name: charbonnier
+  eps: 1.0e-3
+
+distill:
+  teacher_task: all_in_one
+  weight: 1.0
+  # TASK-SELECTIVE KD -- the one prediction that falls directly out of
+  # reports/kd_lit_review/review.md. KD's measured effect is ordered by the
+  # per-task teacher-student gap (r = -0.987 / -0.9999, same ordering in two
+  # independent experiments): it HELPS denoise (gap 0.567dB, +1.238) and HURTS
+  # derain (gap 2.897dB, -2.591) and dehaze (gap 2.283dB, -1.027).
+  # So give the teacher a say ONLY on denoise. Everything else in this file is
+  # byte-identical to b0v2_kd_feat.yaml, so any difference is attributable to
+  # this key alone.
+  kd_tasks: [denoise]
+  # Unchanged from kd_feat's own scale-checked value (m_dehaze_kd_feat.yaml)
+  # — not re-tuned here, so any difference in outcome traces to the data mix
+  # and conditioning, not a re-picked weight.
+  feat_weight: 0.01
+
+eval:
+  harness: src/eval/evaluate.py
+  val_tasks:
+    denoise: test/denoise/bsd68
+    derain:  test/derain/demo
+    dehaze:  test/dehaze/demo
+  test_sets: [bsd68, derain_demo, dehaze_demo]   # documentation only

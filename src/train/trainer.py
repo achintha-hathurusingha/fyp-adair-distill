@@ -223,6 +223,29 @@ class Trainer:
         # unset and is therefore byte-identical to before this was added.
         self.feat_weight = float(dcfg.get("feat_weight", 0.0))
         self._feat_last = 0.0
+        # Task-selective KD (reports/kd_lit_review/review.md). None => KD
+        # applies to every sample, the previous behaviour. A list of task
+        # names restricts BOTH KD terms to those tasks' samples; the task
+        # loss still covers the whole batch.
+        from src.data.build import TASK_IDS
+        kd_tasks = dcfg.get("kd_tasks")
+        if kd_tasks is None:
+            self.kd_task_ids = None
+        else:
+            unknown = set(kd_tasks) - set(TASK_IDS)
+            if unknown:
+                raise ValueError(
+                    f"distill.kd_tasks has unknown task(s) {sorted(unknown)}; "
+                    f"expected a subset of {sorted(TASK_IDS)}")
+            if not kd_tasks:
+                raise ValueError(
+                    "distill.kd_tasks is an empty list -- that would disable "
+                    "KD entirely and silently. Omit the key instead.")
+            self.kd_task_ids = sorted(TASK_IDS[t] for t in kd_tasks)
+            self.log.info(
+                f"task-selective KD: teacher terms apply ONLY to "
+                f"{sorted(kd_tasks)} (task ids {self.kd_task_ids}); "
+                f"task loss still covers all samples")
         self.adapter = None
         self._student_middle_capture: torch.Tensor | None = None
         if self.feat_weight > 0:
@@ -721,7 +744,29 @@ class Trainer:
                                         degraded.float())
                                 else:
                                     soft = self.teacher(degraded.float())
-                        kd = self.criterion(pred.float(), soft.float())
+                        # Task-selective KD: restrict the teacher's
+                        # influence to the tasks named in distill.kd_tasks.
+                        # Masking the SAMPLES (not scaling the loss) keeps the
+                        # per-sample weight of a selected task identical to
+                        # the unrestricted run, so the comparison isolates
+                        # WHICH tasks get KD, not how strongly.
+                        kd_mask = None
+                        if self.kd_task_ids is not None:
+                            _tids = _provenance["task"].to(
+                                self.device, non_blocking=True)
+                            kd_mask = torch.zeros_like(_tids, dtype=torch.bool)
+                            for _t in self.kd_task_ids:
+                                kd_mask |= (_tids == _t)
+                        if kd_mask is not None and not bool(kd_mask.any()):
+                            # No selected-task samples in this micro-batch.
+                            # Multiply by zero rather than skipping, so the
+                            # graph shape stays constant across steps.
+                            kd = (pred.float().sum() * 0.0)
+                        elif kd_mask is not None:
+                            kd = self.criterion(pred.float()[kd_mask],
+                                                soft.float()[kd_mask])
+                        else:
+                            kd = self.criterion(pred.float(), soft.float())
                         loss = loss + self.kd_weight * kd
                         self._kd_last = float(kd)
                         if self.freq_weight > 0:
@@ -755,8 +800,16 @@ class Trainer:
                                 adapted = self.adapter.match_target(
                                     self._student_middle_capture.float(),
                                     teacher_latent.float())
-                                feat = torch.abs(
-                                    adapted - teacher_latent.float()).mean()
+                                _d = torch.abs(adapted - teacher_latent.float())
+                                # Same sample mask as the response term --
+                                # otherwise the feature term would keep
+                                # distilling the tasks kd_tasks excluded.
+                                if kd_mask is not None:
+                                    feat = (_d[kd_mask].mean()
+                                            if bool(kd_mask.any())
+                                            else _d.sum() * 0.0)
+                                else:
+                                    feat = _d.mean()
                             loss = loss + self.feat_weight * feat
                             self._feat_last = float(feat)
                             self._student_middle_capture = None

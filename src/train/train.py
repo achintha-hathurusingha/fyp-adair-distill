@@ -175,6 +175,21 @@ ARMS: dict[str, dict] = {
     # B0V3M: identical to B0V3 except the global operator is interleaved
     # after every 4th middle block instead of applied once after the
     # bottleneck. Single variable: number of injection points.
+    # B0V3-KD-FEAT: StudentV3 + the SAME response+feature KD as
+    # B0V2-KD-FEAT. Holds the training regime fixed so the comparison
+    # against B0V2-KD-FEAT isolates ARCHITECTURE alone -- the current
+    # B0V3-vs-B0V2-KD-FEAT gap is confounded by differing in both.
+    "B0V3-KD-FEAT": {"norm": {"arch": "student_v3",
+                                "use_dcp_prior": True,
+                                "use_strip_pool": True,
+                                "use_oriented_streak": True,
+                                "norm_type": "layernorm2d",
+                                "full_res_norm_type": "affine_clamp",
+                                "clamp_bound": 8.0,
+                                "enc_clamp_stages": [3], "deep_clamp_bound": 32.0},
+                       "config": "configs/train/b0v3_kd_feat.yaml",
+                       "desc": "Student v3 + response+feature KD (all_in_one teacher) "
+                               "-- pure architecture comparison vs B0V2-KD-FEAT"},
     "B0V3M": {"norm": {"arch": "student_v3",
                        "use_dcp_prior": True,
                        "use_strip_pool": True,
@@ -205,6 +220,20 @@ ARMS: dict[str, dict] = {
                      "config": "configs/train/b0v2_kd_feat.yaml",
                      "desc": "B0V2 CONTROL: + response+feature KD from all_in_one "
                              "teacher, no degradation-conditioning"},
+    # Task-selective KD. reports/kd_lit_review/review.md finds KD's effect is
+    # ordered by the per-task teacher-student gap: it HELPS denoise (gap
+    # 0.567dB) and HURTS derain (2.897dB) and dehaze (2.283dB), r = -0.987 /
+    # -0.9999 with identical ordering in two independent experiments. This arm
+    # gives the teacher a say ONLY on denoise. Identical to B0V2-KD-FEAT in
+    # every other respect, so the comparison isolates that one choice.
+    "B0V2-KD-DENOISE-ONLY": {"norm": {"norm_type": "layernorm2d",
+                                      "full_res_norm_type": "affine_clamp",
+                                      "clamp_bound": 8.0,
+                                      "enc_clamp_stages": [3],
+                                      "deep_clamp_bound": 32.0},
+                             "config": "configs/train/b0v2_kd_denoise_only.yaml",
+                             "desc": "B0V2 + response+feature KD applied ONLY to "
+                                     "denoise samples (capacity-gap prediction)"},
     "B0V2-KD-FEAT-COND": {"norm": {"norm_type": "layernorm2d",
                                    "full_res_norm_type": "affine_clamp",
                                    "clamp_bound": 8.0,
@@ -273,8 +302,10 @@ ARM_GEOMETRY = {"M-A": W16_SIDD, "M-F": W16_SIDD, "B0": W16_SIDD,
                 "M-DEHAZE-KD-FREQ": W16_SIDD, "M-DEHAZE-KD-FEAT": W16_SIDD,
                 "M-DEHAZE-KD-W05": W16_SIDD, "M-DEHAZE-KD-W20": W16_SIDD,
                 "M-DEHAZE-ECA": W16_SIDD, "M-DEHAZE-GROUPNORM": W16_SIDD,
+                "B0V3-KD-FEAT": W16_SIDD,
                 "B0V3M": W16_SIDD,
                 "B0V3": W16_SIDD,
+                "B0V2-KD-DENOISE-ONLY": W16_SIDD,
                 "B0V2-KD-FEAT": W16_SIDD, "B0V2-KD-FEAT-COND": W16_SIDD,
                 "B0V2-KD-FEAT-COND-DECFILM": W16_SIDD,
                 "B0V2-KD-FEAT-CACHED": W16_SIDD}
