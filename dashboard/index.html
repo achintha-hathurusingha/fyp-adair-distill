@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Training Board — AdaIR distillation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+:root{
+  --ground:#F5F8F6;--surface:#FCFCFB;--band:#EDF2F0;--ink:#111917;
+  --muted:#5F706C;--faint:#8A9995;--rule:#D3DEDA;--hard:#111917;
+  --c1:#0E8C76;--c2:#B5651D;--c3:#2D5FA8;--c4:#A63446;--c5:#6D4A9E;
+  --warnbg:#FBF0EE;--warnbd:#E3C4BE;
+  --shadow:0 1px 2px rgba(17,25,23,.05),0 6px 20px rgba(17,25,23,.05);
+  --serif:"IBM Plex Serif",Georgia,serif;--sans:"IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0D1413;--surface:#1A1A19;--band:#212B29;--ink:#E8EFEC;
+  --muted:#9AABA6;--faint:#71827E;--rule:#2A3733;--hard:#E8EFEC;
+  --c1:#28A088;--c2:#B87E31;--c3:#4E82CC;--c4:#C4566E;--c5:#7B5FC4;
+  --warnbg:#241A19;--warnbd:#4A322E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.3);
+}}
+:root[data-theme="dark"]{
+  --ground:#0D1413;--surface:#1A1A19;--band:#212B29;--ink:#E8EFEC;
+  --muted:#9AABA6;--faint:#71827E;--rule:#2A3733;--hard:#E8EFEC;
+  --c1:#28A088;--c2:#B87E31;--c3:#4E82CC;--c4:#C4566E;--c5:#7B5FC4;
+  --warnbg:#241A19;--warnbd:#4A322E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:26px 22px 80px}
+h1,h2{font-family:var(--serif);margin:0}
+h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
+h2{font-size:18px;font-weight:600}
+h3{font-family:var(--sans);font-size:15px;font-weight:600;margin:0}
+p{margin:0}
+.mono{font-family:var(--mono)}
+topbar,.topbar{display:flex;align-items:center;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--rule);
+  padding-bottom:16px;margin-bottom:22px}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--c1)}
+.pollbox{display:flex;align-items:center;gap:9px;font-family:var(--mono);
+  font-size:11.5px;color:var(--muted)}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--c1)}
+.pulse.bad{background:var(--c4)}
+@media (prefers-reduced-motion:no-preference){
+  .pulse{animation:bp 2s ease-in-out infinite}
+  @keyframes bp{0%,100%{opacity:1}50%{opacity:.35}}
+}
+.gpus{display:flex;gap:10px;flex-wrap:wrap}
+.gpu{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:8px 12px;font-family:var(--mono);font-size:11.5px;color:var(--muted);
+  display:flex;gap:12px;align-items:center}
+.gpu b{color:var(--ink);font-weight:600}
+.gpu .meter{width:56px;height:5px;background:var(--band);border-radius:2px;overflow:hidden}
+.gpu .meter i{display:block;height:100%;background:var(--c1)}
+section{margin-top:30px}
+.sechead{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;
+  border-bottom:1px solid var(--rule);padding-bottom:9px;margin-bottom:16px}
+.sechead p{color:var(--muted);font-size:12.5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);padding:16px 18px}
+.card.live{border-left:3px solid var(--c1)}
+.card.done{border-left:3px solid var(--rule)}
+.card.err{border-left:3px solid var(--c4)}
+.chead{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  flex-wrap:wrap;margin-bottom:4px}
+.role{color:var(--muted);font-size:12.5px}
+.chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;padding:2px 7px;border-radius:2px;
+  border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
+.chip.live{border-color:var(--c1);color:var(--c1)}
+.chip.leak{background:var(--warnbg);border-color:var(--warnbd);color:var(--c4)}
+.chip.clean{border-color:var(--c1);color:var(--c1)}
+.chip.stale{color:var(--faint)}
+.prog{height:6px;background:var(--band);border-radius:2px;overflow:hidden;margin:12px 0 6px}
+.prog i{display:block;height:100%;background:var(--c1);transition:width .4s ease}
+.progtxt{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:11px;color:var(--faint)}
+.psnrs{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);
+  border:1px solid var(--rule);border-radius:3px;overflow:hidden;margin-top:13px}
+.pz{background:var(--surface);padding:8px 10px}
+.pz .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--faint)}
+.pz .v{font-family:var(--mono);font-size:17px;font-weight:600;
+  font-variant-numeric:tabular-nums;margin-top:2px}
+.pz.main .v{color:var(--c1)}
+.diag{display:flex;gap:14px;flex-wrap:wrap;margin-top:11px;font-family:var(--mono);
+  font-size:11px;color:var(--muted)}
+.diag b{color:var(--ink);font-weight:500}
+svg.spark{display:block;width:100%;height:auto;margin-top:13px;overflow:visible}
+.gridline{stroke:var(--rule);stroke-width:1}
+.axlab{font-family:var(--mono);font-size:9.5px;fill:var(--faint)}
+details{margin-top:11px}
+summary{cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--faint);
+  letter-spacing:.06em;text-transform:uppercase}
+summary:focus-visible{outline:2px solid var(--c1);outline-offset:3px}
+pre{margin:8px 0 0;padding:10px;background:var(--band);border-radius:2px;
+  font-family:var(--mono);font-size:10.5px;line-height:1.5;color:var(--muted);
+  overflow-x:auto;max-height:190px}
+.warnbox{background:var(--warnbg);border:1px solid var(--warnbd);border-radius:3px;
+  padding:12px 15px;margin-bottom:16px;font-size:13px}
+.empty{color:var(--faint);font-size:13px;padding:14px 0}
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--rule);
+  color:var(--faint);font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="topbar">
+  <div>
+    <p class="eyebrow">Distillation for degradation-adaptive mobile restoration</p>
+    <h1>Training Board</h1>
+  </div>
+  <div class="pollbox"><span class="pulse" id="pulse"></span><span id="pollTxt">connecting…</span></div>
+</div>
+
+<div class="gpus" id="gpus"></div>
+
+<div class="warnbox" id="regimeWarn" hidden></div>
+
+<section>
+  <div class="sechead"><h2>Running</h2><p id="liveCount"></p></div>
+  <div class="grid" id="liveGrid"></div>
+  <p class="empty" id="liveEmpty" hidden>Nothing training right now.</p>
+</section>
+
+<section>
+  <div class="sechead"><h2>Finished &amp; historical</h2>
+    <p>last checkpoint on disk — these curves are on the evaluation their run used</p></div>
+  <div class="grid" id="doneGrid"></div>
+</section>
+
+<footer>
+  Polls <span class="mono">/api/status</span> every 6&nbsp;s ·
+  <span class="mono">local_server.py</span> SSHes each host and runs
+  <span class="mono">remote_status.py</span>, which reads
+  <span class="mono">history.json</span> and tails
+  <span class="mono">train.log</span> — it never touches the training process.
+</footer>
+</div>
+
+<script>
+// --- arm metadata: role, and which EVALUATION the run's own history is on ----
+// This matters more than it looks. Arms started before the leak fix were
+// validated on test/{derain,dehaze}/demo, which were carved out of the training
+// corpora, so their curves are inflated ~1.9 dB and are NOT comparable to the
+// corrected arms. Labelling it on the card is the whole point.
+const META = {
+  "B0V3-KD-K11":     {role:"plain 11×11 depthwise — receptive-field control", eval:"clean"},
+  "B0V3-KD-ORI":     {role:"reparameterizable oriented block", eval:"clean"},
+  "B0V3-KD-ORI-MID": {role:"oriented block + middle placement", eval:"clean"},
+  "B0V3-KD-FEAT":    {role:"StudentV3 + KD — current best arm", eval:"leaked"},
+  "B0V3":            {role:"StudentV3, GT-only", eval:"leaked"},
+  "B0V2-KD-FEAT":    {role:"NAFNet + KD — architecture control", eval:"leaked"},
+};
+const TOTAL_ITERS = 90000;
+const $ = id => document.getElementById(id);
+const fmt = (v,d=3) => (v==null||isNaN(v)) ? "—" : Number(v).toFixed(d);
+
+function spark(hist, w=430, h=96){
+  const pts = hist.filter(e => e.psnr != null).map(e => [e.iteration, e.psnr]);
+  if (pts.length < 2) return `<p class="empty" style="padding:6px 0">awaiting a second checkpoint…</p>`;
+  const M = {t:8,r:8,b:16,l:38};
+  const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+  const x0=0, x1=Math.max(...xs, TOTAL_ITERS);
+  let y0=Math.min(...ys), y1=Math.max(...ys);
+  const pad=Math.max((y1-y0)*0.14, 0.02); y0-=pad; y1+=pad;
+  const X=v=>M.l+(v-x0)/(x1-x0)*(w-M.l-M.r);
+  const Y=v=>h-M.b-(v-y0)/(y1-y0)*(h-M.t-M.b);
+  let s='';
+  for(let i=0;i<=2;i++){
+    const v=y0+(y1-y0)*i/2, y=Y(v);
+    s+=`<line class="gridline" x1="${M.l}" y1="${y.toFixed(1)}" x2="${w-M.r}" y2="${y.toFixed(1)}"/>`;
+    s+=`<text class="axlab" x="${M.l-6}" y="${(y+3).toFixed(1)}" text-anchor="end">${v.toFixed(1)}</text>`;
+  }
+  const d = pts.map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join(' ');
+  s+=`<path d="${d}" fill="none" stroke="var(--c1)" stroke-width="2"
+       stroke-linejoin="round" stroke-linecap="round"/>`;
+  const last=pts[pts.length-1];
+  s+=`<circle cx="${X(last[0]).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="3.4"
+       fill="var(--c1)" stroke="var(--surface)" stroke-width="2"/>`;
+  s+=`<text class="axlab" x="${M.l}" y="${h-3}">0</text>`;
+  s+=`<text class="axlab" x="${w-M.r}" y="${h-3}" text-anchor="end">${(x1/1000)}k</text>`;
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" role="img"
+    aria-label="Combined PSNR over training, latest ${fmt(last[1])} dB at iteration ${last[0]}">${s}</svg>`;
+}
+
+function card(a, host){
+  const meta = META[a.arm] || {role:"", eval:null};
+  // "no run directory" means QUEUED, not broken -- an arm later in the S3.3
+  // sequence has simply not started yet. Rendering that as a red error card
+  // would cry wolf every time the board is opened mid-sequence.
+  if (a.error && /no run directory/i.test(a.error)) {
+    return `<div class="card done"><div class="chead"><h3>${a.arm}</h3>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${meta.eval==="clean"?'<span class="chip clean">leak-free eval</span>':''}
+        <span class="chip stale">queued</span><span class="chip">${host}</span></div></div>
+      <p class="role">${meta.role}</p>
+      <div class="prog"><i style="width:0%"></i></div>
+      <div class="progtxt"><span>0 / ${TOTAL_ITERS.toLocaleString()} it</span>
+        <span>waiting for the GPU</span></div></div>`;
+  }
+  if (a.error) return `<div class="card err"><div class="chead"><h3>${a.arm}</h3>
+    <span class="chip">${host}</span></div>
+    <p class="role" style="color:var(--c4)">${a.error}</p></div>`;
+  const L = a.latest || {};
+  const it = L.iteration || 0;
+  const pct = Math.min(100, it / TOTAL_ITERS * 100);
+  const running = !a.stale;
+  const ago = a.last_update_s_ago;
+  const agoTxt = ago == null ? "" :
+    ago < 90 ? `${Math.round(ago)}s ago` :
+    ago < 5400 ? `${Math.round(ago/60)}m ago` : `${(ago/3600).toFixed(1)}h ago`;
+  const evalChip = meta.eval === "clean"
+    ? `<span class="chip clean">leak-free eval</span>`
+    : meta.eval === "leaked" ? `<span class="chip leak">leaked eval</span>` : "";
+  return `<div class="card ${running?'live':'done'}">
+    <div class="chead">
+      <h3>${a.arm}</h3>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${evalChip}
+        <span class="chip ${running?'live':'stale'}">${running?'training':'idle'}</span>
+        <span class="chip">${host}</span>
+      </div>
+    </div>
+    <p class="role">${meta.role}</p>
+    <div class="prog"><i style="width:${pct}%"></i></div>
+    <div class="progtxt"><span>${it.toLocaleString()} / ${TOTAL_ITERS.toLocaleString()} it</span>
+      <span>${pct.toFixed(1)}%${agoTxt?' · '+agoTxt:''}</span></div>
+    <div class="psnrs">
+      <div class="pz main"><div class="k">combined</div><div class="v">${fmt(L.psnr)}</div></div>
+      <div class="pz"><div class="k">denoise</div><div class="v">${fmt(L.psnr_denoise)}</div></div>
+      <div class="pz"><div class="k">derain</div><div class="v">${fmt(L.psnr_derain)}</div></div>
+      <div class="pz"><div class="k">dehaze</div><div class="v">${fmt(L.psnr_dehaze)}</div></div>
+    </div>
+    <div class="diag">
+      <span>loss <b>${fmt(L.loss,5)}</b></span>
+      <span>gnorm <b>${fmt(L.grad_norm,3)}</b></span>
+      <span>clip <b>${L.clip_rate!=null?(L.clip_rate*100).toFixed(1)+'%':'—'}</b></span>
+      <span>skips <b>${L.nonfinite_skips ?? '—'}</b></span>
+      <span>vram <b>${L.peak_vram_gb!=null?L.peak_vram_gb.toFixed(2)+'G':'—'}</b></span>
+    </div>
+    ${spark(a.history || [])}
+    <details><summary>log tail · ${a.run_dir||''}</summary>
+      <pre>${(a.log_tail||[]).map(l=>l.replace(/[<&]/g,c=>({'<':'&lt;','&':'&amp;'}[c]))).join('\n')||'(no log)'}</pre>
+    </details>
+  </div>`;
+}
+
+async function tick(){
+  let d;
+  try{
+    const r = await fetch('/api/status', {cache:'no-store'});
+    d = await r.json();
+  }catch(e){
+    $('pulse').className='pulse bad';
+    $('pollTxt').textContent='server unreachable — is local_server.py running?';
+    return;
+  }
+  const hosts = d.hosts || {};
+  // GPUs
+  $('gpus').innerHTML = Object.entries(hosts).map(([name,h])=>{
+    if(h.error) return `<div class="gpu"><b>${name}</b><span style="color:var(--c4)">${h.error.slice(0,70)}</span></div>`;
+    return (h.gpus||[]).map(g=> g.error
+      ? `<div class="gpu"><b>${name}</b><span>${g.error.slice(0,60)}</span></div>`
+      : `<div class="gpu"><b>${name}</b>
+          <span>${g.name.replace('NVIDIA GeForce ','')}</span>
+          <span class="meter"><i style="width:${g.util_pct}%"></i></span>
+          <span>${g.util_pct}%</span>
+          <span>${(g.mem_used_mb/1024).toFixed(1)}/${(g.mem_total_mb/1024).toFixed(0)}G</span>
+          <span>${g.temp_c}°C</span></div>`).join('');
+  }).join('');
+
+  const all = [];
+  Object.entries(hosts).forEach(([name,h]) => (h.arms||[]).forEach(a => all.push([a,name])));
+  const live = all.filter(([a]) => !a.error && !a.stale);
+  const done = all.filter(([a]) => a.error || a.stale);
+
+  $('liveGrid').innerHTML = live.map(([a,n])=>card(a,n)).join('');
+  $('liveEmpty').hidden = live.length > 0;
+  $('liveCount').textContent = live.length ? `${live.length} arm${live.length>1?'s':''} active` : '';
+  $('doneGrid').innerHTML = done.map(([a,n])=>card(a,n)).join('');
+
+  const anyLeak = all.some(([a]) => (META[a.arm]||{}).eval === 'leaked');
+  const anyClean = all.some(([a]) => (META[a.arm]||{}).eval === 'clean');
+  const warn = $('regimeWarn');
+  warn.hidden = !(anyLeak && anyClean);
+  if(!warn.hidden) warn.innerHTML =
+    `<strong>Two evaluation regimes on this board.</strong> Arms marked
+     <em>leaked eval</em> were validated on test sets carved out of the training
+     corpora — their curves run about 1.9&nbsp;dB high and cannot be compared
+     against the <em>leak-free</em> arms. Compare within a regime only.`;
+
+  $('pulse').className='pulse';
+  const age = d.polled_at ? Math.round(Date.now()/1000 - d.polled_at) : null;
+  $('pollTxt').textContent = `updated ${age==null?'—':age+'s'} ago · ${all.length} arms tracked`;
+}
+tick();
+setInterval(tick, 6000);
+</script>
+</body>
+</html>
