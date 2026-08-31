@@ -1,0 +1,142 @@
+==============================================================================
+C. CONTROLLED RAIN ANGLE -- does the family ranking depend on angle?
+==============================================================================
+  Rain generated at a FIXED angle; every family refitted per angle.
+  0/90 deg are axis-aligned; 45 deg is the case axis-aligned low rank
+  cannot represent cheaply. If rank2 only wins at 0/90, the diagonal
+  branches are load-bearing.
+
+  --- rain angle   0.0 deg,  k=11 ---   degraded 26.274 -> linear ceiling 27.489
+      optimal kernel: anisotropy 2.48x at 0 deg
+      full         121   27.410   +0.520 vs iso   +0.000 vs full
+      oriented4     97   27.406   +0.515 vs iso   -0.005 vs full
+      cross         57   27.343   +0.452 vs iso   -0.068 vs full
+      diag          57   27.234   +0.343 vs iso   -0.177 vs full
+      iso           20   26.891   +0.000 vs iso   -0.520 vs full
+      rank1         21   27.118   +0.228 vs iso   -0.292 vs full
+      rank2         42   27.408   +0.518 vs iso   -0.002 vs full
+      rank3         63   27.411   +0.520 vs iso   +0.000 vs full
+
+  --- rain angle  22.5 deg,  k=11 ---   degraded 26.675 -> linear ceiling 28.247
+      optimal kernel: anisotropy 3.78x at 22 deg
+      full         121   28.064   +0.830 vs iso   +0.000 vs full
+      oriented4     97   27.986   +0.752 vs iso   -0.078 vs full
+      cross         57   27.925   +0.691 vs iso   -0.138 vs full
+      diag          57   27.830   +0.596 vs iso   -0.234 vs full
+      iso           20   27.234   +0.000 vs iso   -0.830 vs full
+      rank1         21   27.300   +0.066 vs iso   -0.764 vs full
+      rank2         42   27.856   +0.622 vs iso   -0.207 vs full
+      rank3         63   27.958   +0.724 vs iso   -0.105 vs full
+
+  --- rain angle  45.0 deg,  k=11 ---   degraded 26.153 -> linear ceiling 28.034
+      optimal kernel: anisotropy 3.78x at 45 deg
+      full         121   27.878   +0.548 vs iso   +0.000 vs full
+      oriented4     97   27.863   +0.533 vs iso   -0.015 vs full
+      cross         57   27.423   +0.093 vs iso   -0.455 vs full
+      diag          57   27.581   +0.251 vs iso   -0.297 vs full
+      iso           20   27.330   +0.000 vs iso   -0.548 vs full
+      rank1         21   26.803   -0.527 vs iso   -1.075 vs full
+      rank2         42   27.419   +0.090 vs iso   -0.458 vs full
+      rank3         63   27.589   +0.260 vs iso   -0.288 vs full
+
+  --- rain angle  67.5 deg,  k=11 ---   degraded 26.686 -> linear ceiling 28.254
+      optimal kernel: anisotropy 3.70x at 68 deg
+      full         121   28.025   +0.805 vs iso   +0.000 vs full
+      oriented4     97   27.939   +0.719 vs iso   -0.086 vs full
+      cross         57   27.864   +0.644 vs iso   -0.161 vs full
+      diag          57   27.781   +0.560 vs iso   -0.245 vs full
+      iso           20   27.220   +0.000 vs iso   -0.805 vs full
+      rank1         21   27.260   +0.040 vs iso   -0.765 vs full
+      rank2         42   27.802   +0.582 vs iso   -0.223 vs full
+      rank3         63   27.917   +0.697 vs iso   -0.108 vs full
+
+  --- rain angle  90.0 deg,  k=11 ---   degraded 26.192 -> linear ceiling 27.347
+      optimal kernel: anisotropy 2.58x at 88 deg
+      full         121   27.230   +0.416 vs iso   +0.000 vs full
+      oriented4     97   27.225   +0.411 vs iso   -0.005 vs full
+      cross         57   27.178   +0.364 vs iso   -0.052 vs full
+      diag          57   27.092   +0.277 vs iso   -0.139 vs full
+      iso           20   26.815   +0.000 vs iso   -0.416 vs full
+      rank1         21   26.989   +0.174 vs iso   -0.242 vs full
+      rank2         42   27.230   +0.415 vs iso   -0.000 vs full
+      rank3         63   27.231   +0.416 vs iso   +0.001 vs full
+
+
+  SUMMARY across angles (k=11), dB relative to the `full` k x k oracle
+    angle     full      or4    cross     diag      iso    rank2    rank3   aniso   kang
+      0.0   27.410   -0.005   -0.068   -0.177   -0.520   -0.002   +0.000    2.48      0
+     22.5   28.064   -0.078   -0.138   -0.234   -0.830   -0.207   -0.105    3.78     22
+     45.0   27.878   -0.015   -0.455   -0.297   -0.548   -0.458   -0.288    3.78     45
+     67.5   28.025   -0.086   -0.161   -0.245   -0.805   -0.223   -0.108    3.70     68
+     90.0   27.230   -0.005   -0.052   -0.139   -0.416   -0.000   +0.001    2.58     88
+
+==============================================================================
+B. REAL RAIN (RainTrainL pairs shipped in the repo)
+==============================================================================
+  200 paired real rain images
+  usable pairs: 200
+
+  Measured streak orientation (structure tensor on the residual):
+    mean coherence 0.910  (1 = strongly oriented, 0 = no preferred direction)
+    circular mean 93.4 deg, circular sd 13.2 deg, R = 0.900
+    angle histogram (deg):
+          0-15     0
+         15-30     0
+         30-45     0
+         45-60     0
+         60-75    ##### 14
+         75-90    ########################## 64
+         90-105   ######################################## 95
+        105-120   ########### 27
+        120-135    0
+        135-150    0
+        150-165    0
+        165-180    0
+    (synthetic add_rain draws angle ~ U(-15, 15) by construction)
+
+  fit on 150 pairs, held out 50
+    degraded input                 25.693 dB
+    unconstrained frequency filter 25.917 dB (+0.223)
+
+    --- k = 7 ---  optimal kernel anisotropy 1.08x at 175 deg
+      full          49   25.995   +0.274 vs iso   +0.000 vs full
+      oriented4     49   25.995   +0.274 vs iso   +0.000 vs full
+      cross         33   25.975   +0.253 vs iso   -0.021 vs full
+      diag          33   25.968   +0.247 vs iso   -0.027 vs full
+      iso           10   25.721   +0.000 vs iso   -0.274 vs full
+      rank1         13   25.911   +0.190 vs iso   -0.084 vs full
+      rank2         26   26.004   +0.283 vs iso   +0.009 vs full
+      rank3         39   25.994   +0.273 vs iso   -0.001 vs full
+      KEY: oriented4 - iso = +0.274 dB
+
+    --- k = 11 ---  optimal kernel anisotropy 1.43x at 167 deg
+      full         121   25.983   +0.275 vs iso   +0.000 vs full
+      oriented4     97   25.986   +0.278 vs iso   +0.003 vs full
+      cross         57   25.955   +0.248 vs iso   -0.027 vs full
+      diag          57   25.960   +0.253 vs iso   -0.023 vs full
+      iso           20   25.707   +0.000 vs iso   -0.275 vs full
+      rank1         21   25.896   +0.188 vs iso   -0.087 vs full
+      rank2         42   25.992   +0.285 vs iso   +0.009 vs full
+      rank3         63   25.989   +0.281 vs iso   +0.006 vs full
+      KEY: oriented4 - iso = +0.278 dB
+
+    --- k = 15 ---  optimal kernel anisotropy 1.79x at 171 deg
+      full         225   25.974   +0.272 vs iso   +0.000 vs full
+      oriented4    145   25.983   +0.281 vs iso   +0.009 vs full
+      cross         81   25.951   +0.249 vs iso   -0.023 vs full
+      diag          81   25.955   +0.253 vs iso   -0.019 vs full
+      iso           34   25.702   +0.000 vs iso   -0.272 vs full
+      rank1         29   25.890   +0.188 vs iso   -0.084 vs full
+      rank2         58   25.984   +0.282 vs iso   +0.010 vs full
+      rank3         87   25.987   +0.285 vs iso   +0.013 vs full
+      KEY: oriented4 - iso = +0.281 dB
+
+==============================================================================
+READING
+==============================================================================
+  rain at  0 deg: rank2 -0.002 vs full | cross -0.068 | diag -0.177 | oriented4 -0.005
+  rain at 45 deg: rank2 -0.458 vs full | cross -0.455 | diag -0.297 | oriented4 -0.015
+
+  real rain: circular sd of streak angle = 13.2 deg (synthetic is U(-15,15) -> sd ~8.7 deg)
+
+wrote reports/reparam_gate/s0_1b_angle_control.json

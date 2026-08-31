@@ -1,0 +1,87 @@
+==========================================================================
+S0.2 -- NPU export gate, reparameterizable oriented-kernel block
+==========================================================================
+
+[1] merge exactness (this is S3.2's gate, checked early so the
+    exported deployment graph is known to BE the trained one)
+  -- no BatchNorm --
+    input   9x9    max|multi-branch - merged| = 7.153e-07
+    input  32x32   max|multi-branch - merged| = 9.537e-07
+  -- per-branch BatchNorm (RepVGG recipe), folded at eval --
+    input   9x9    max|multi-branch - merged| = 3.576e-07
+    input  32x32   max|multi-branch - merged| = 9.537e-07
+  worst overall: no-BN 9.537e-07 | BN 9.537e-07   (S3.2 threshold 1e-5)
+
+[2] identity at init (zero-init residual, repo idiom)
+    identity at init OK, gradients finite
+
+[3] diagonal masks survive an optimiser step
+    max off-band tap after a step: 45deg 0.000e+00, 135deg 0.000e+00
+
+[4] parameter cost
+    training core    2128 params -> merged conv     800 params (2.66x collapse)
+    full block (core + 1x1 fuse), training-time: 2384 params @ dim=16
+
+[5] ONNX export + op coverage
+
+### TRAINING graph (multi-branch)  ->  runs/reparam_oriented_train.onnx
+  op histogram: Add x6, Conv x8, Identity x5, Mul x6
+    qnn       UNKNOWN: Identity             caution: none
+    tflite    UNKNOWN: Identity             caution: none
+    tensorrt  UNKNOWN: Identity             caution: none
+
+### DEPLOYMENT graph (merged core only)  ->  runs/reparam_oriented_merged.onnx
+  op histogram: Conv x1
+    qnn       UNKNOWN: none                 caution: none
+    tflite    UNKNOWN: none                 caution: none
+    tensorrt  UNKNOWN: none                 caution: none
+
+### DEPLOYMENT graph (merged block, incl. 1x1 fuse)  ->  runs/reparam_oriented_merged_block.onnx
+  op histogram: Add x1, Conv x2
+    qnn       UNKNOWN: none                 caution: none
+    tflite    UNKNOWN: none                 caution: none
+    tensorrt  UNKNOWN: none                 caution: none
+
+[6] ONNX-RUNTIME parity: is the EXPORTED merged graph equal to the
+    exported training graph? (the PyTorch merge being exact does not
+    prove the exported one is)
+    max|ORT(train graph) - ORT(merged graph)| = 1.192e-06
+    max|eager PyTorch     - ORT(merged graph)| = 1.192e-06
+
+[7] design-box sweep (dim x kernel): merge exactness + op set
+     dim   k   max|diff|  train par  merged par          ops  UNKNOWN
+      16   7   9.537e-07       2128         800       Convx1  none
+      16   9   9.537e-07       3216        1312       Convx1  none
+      16  11   2.384e-06       4560        1952       Convx1  none
+      32   7   1.431e-06       4256        1600       Convx1  none
+      32   9   1.669e-06       6432        2624       Convx1  none
+      32  11   2.384e-06       9120        3904       Convx1  none
+      64   7   1.192e-06       8512        3200       Convx1  none
+      64   9   1.907e-06      12864        5248       Convx1  none
+      64  11   2.861e-06      18240        7808       Convx1  none
+
+[8] INT8 gate -- the deployment target is INT8, so the FP32 op set
+    is only half the question. Static PTQ (QDQ, per-channel) of the
+    merged graph, then re-score.
+    INT8 op histogram: Conv x1, DequantizeLinear x4, QuantizeLinear x2
+      qnn       UNKNOWN: none                 caution: none
+      tflite    UNKNOWN: none                 caution: none
+      tensorrt  UNKNOWN: none                 caution: none
+
+==========================================================================
+VERDICT
+==========================================================================
+  merged core graph: 1 Conv node(s), 1 node(s) total  (S3.2 expects exactly 1 Conv)
+  PASS: no UNKNOWN op survives reparameterization on any backend,
+        in FP32 or INT8.
+  merged block (with 1x1 fuse) UNKNOWN: none
+  training graph UNKNOWN (informational, never shipped): ['Identity']
+  merged core CAUTION: none
+
+  Static-table blind spots this gate CANNOT see (flagged, not resolved):
+    - op_coverage sees 'Conv' only; it does not distinguish DEPTHWISE
+      (groups=16) from dense, nor kernel size. A merged 7x7 depthwise
+      conv is a different INT8 proposition from a 3x3 dense one.
+    - kernel-size limits are backend-specific; S4.4 (real AI Hub) is ground truth.
+    - per SESSION_CONTEXT, normalisation choice -- not conditioning -- dominated
+      measured Snapdragon latency (2.80x). This block adds no normalisation.

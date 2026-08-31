@@ -124,25 +124,64 @@ Status: `[ ]` not started · `[~]` running · `[x]` done · `[!]` killed
 
 ### PHASE 0 — Establish ceilings before building (no GPU)
 
-**S0.1 · Oracle ceiling for separable oriented kernels** `[ ]`
-Extend `scripts/freq_to_spatial.py`: fit a *separable oriented* kernel bank per
-degradation, measure held-out PSNR.
-- **Kill:** oriented ceiling < +0.15 dB over isotropic → drop the orientation
-  machinery, use a plain large kernel.
-- CPU ~1h. Depends: nothing.
+**S0.1 · Oracle ceiling for separable oriented kernels** `[x]` **PASS (rain only)**
+`scripts/oriented_ceiling.py`, `scripts/oriented_angle_control.py` →
+`reports/reparam_gate/s0_1_oriented_ceiling.md`.
+- **Result:** oriented − isotropic = **+0.385 dB derain** (synthetic), **+0.278 dB**
+  (real RainTrainL) — passes. **denoise +0.009, dehaze +0.001 — killed there.**
+  Reproduces the DFC geometry finding (gain entirely on rain) in the restoration
+  domain. Kernel anisotropy 3.84× for rain vs 1.04× denoise.
+- **Random-support control:** from k=11 (where the oriented support is a genuine
+  proper subspace) oriented stays within 0.013 dB of the unconstrained oracle
+  while a random support of the *same size* loses 0.86–2.05 dB. The geometry is
+  doing the work, not the tap count.
+- **Confound found and corrected:** `degradations.add_rain` draws
+  `angle ~ U(-15,15)`, so synthetic rain is near-vertical **by construction**.
+  On that data axis-aligned `rank3` matches the full oracle at 28% of the
+  parameters — which would have said "drop the orientation branches". Refitting
+  at controlled angles kills that reading: at **45°**, `rank2`/`rank3` collapse
+  (−0.458 / −0.288 vs the oracle) while the 4-orientation bank holds at −0.015.
+  The bank is the only family within 0.09 dB of the oracle at **every** angle.
+- **Real rain measured:** RainTrainL streaks are coherence 0.910, circular mean
+  93.4°, sd 13.2° — also near-vertical. So *neither* corpus contains off-axis
+  rain (see S3.3 caution, S4.3).
+- CPU, ~25 min actual. Depends: nothing.
 
-**S0.2 · NPU export gate for the proposed ops** `[ ]` **← DO THIS FIRST**
-Export a stub block (parallel oriented convs → linear combine → merged conv)
-through `src/export/op_coverage.py` *before* any training.
-- **Kill:** any UNKNOWN op surviving reparameterization.
+**S0.2 · NPU export gate for the proposed ops** `[x]` **PASS**
+`scripts/probe_reparam_oriented.py` → `reports/reparam_gate/s0_2_export_gate.md`.
+- **Result:** merged deployment graph is **one node — a single depthwise `Conv`**.
+  **Zero UNKNOWN and zero CAUTION ops on qnn/tflite/tensorrt, in FP32 and INT8**
+  (QDQ per-channel adds only Quantize/DequantizeLinear, both supported).
+  Holds across dim ∈ {16,32,64} × k ∈ {7,9,11}. Phase 3 is not export-blocked.
+- Merge verified, not assumed: max |multi-branch − merged| = **9.5e-07**, and
+  ORT(training graph) vs ORT(merged graph) = **1.2e-06** — the PyTorch merge
+  being exact does not prove the *exported* one is, so both are checked.
+- Per-branch BatchNorm folds exactly at eval, so the RepVGG recipe is available
+  at zero deployment cost. Deployment params come out 2.3–2.7× *below* training.
+- **Does not establish:** `op_coverage` sees only `Conv` — not depthwise-vs-dense,
+  not kernel size. Real AI Hub conversion (S4.4) remains ground truth.
 - Minutes. Depends: nothing.
 
-**S0.3 · How much does PCA-16 throw away?** `[ ]`
-Probe degradation-ID accuracy from decoder features at 16/32/64/128/full dims,
-leave-scene-out.
-- **Kill:** 16 dims already saturates → "wider feature set" is unjustified; say
-  so and keep PCA-16.
-- CPU ~2h. Depends: nothing.
+**S0.3 · How much does PCA-16 throw away?** `[x]` **KILL — keep PCA-16**
+`scripts/pca_dim_probe.py` → `reports/reparam_gate/s0_3_pca_dims.md`.
+Probed the **student's own** decoder features (the teacher's TEST19 `e_D` basis
+is not in this repo), same-scene, 5-fold leave-scene-out, PCA fitted on the
+train fold only, 400 scenes / 1,200 samples.
+- **Result:** largest gain of *any* dim over 16, from *any* source: **+1.17 pp**,
+  and mostly inside fold noise (sd 0.3–1.9 pp). The best 16-dim source
+  (`concat`, 99.67%) beats the best 128-dim version of every other stage.
+  **A wider post-decoder feature set is not justified by degradation-ID capacity.**
+- **Controls clean:** clean images labelled as if degraded sit at **exactly
+  33.33%** (chance) at both 16 and full dims; shuffled labels 35.25%.
+  Sanity gate: the loaded model restores **+11.50 dB** before any probing, so
+  the features are not garbage from bad preprocessing.
+- **THE IMPORTANT PART — the probe task is saturated, not just the dim axis.**
+  `concat` hits **99.67% at TWO dimensions**. Unsurprising in hindsight: the
+  student was trained on exactly these three degradations. This means the
+  premise "a richer degradation representation replacing PCA-16" has lost its
+  stated motivation — **width is not the bottleneck** — and it breaks S2.1's
+  kill criterion (see there).
+- CPU, ~10 min actual. Depends: nothing.
 
 ---
 
@@ -181,11 +220,27 @@ dilution.
 ### PHASE 2 — Richer degradation representation
 
 **S2.1 · DFC-style representation from decoder features** `[ ]`
+**← CRITERION BROKEN BY S0.3, REDEFINE BEFORE RUNNING**
 Band-wise residual-to-degraded ratios on *decoder features*, using the
 **separable oriented** bands S0.1 validated. Residual estimated as
 degraded-minus-intermediate-restoration (DFC's trick — no GT at inference).
-- **Kill:** < +2pp over PCA-16 at matched dimension.
-- CPU ~3h. Depends: S0.1, S0.3.
+- ~~**Kill:** < +2pp over PCA-16 at matched dimension.~~ **Unsatisfiable.**
+  S0.3 measured PCA-16 on decoder features at **99.67%**, so the maximum gain
+  physically available is **+0.33 pp**. No representation, however good, can
+  clear a +2 pp bar. Running this as written produces a guaranteed kill that
+  means nothing.
+- **Redefine on a metric with headroom.** Cheapest first:
+  1. **Degradation *severity*, not type** — regress σ ∈ {15,25,50}, haze density,
+     rain density. Type is trivial; magnitude is what a conditioning signal
+     would actually have to carry, and S0.3 shows nothing about whether it is
+     present. ~1h CPU extension of `scripts/pca_dim_probe.py`.
+  2. **Unseen / composite degradations** (the S4.3 regime) — where a
+     representation must generalise rather than recall.
+  3. **Downstream PSNR** rather than probe accuracy — the only metric immune to
+     ceiling effects, and the one we actually care about.
+- **Do (1) before committing to this stage at all** — if severity is also
+  saturated, the whole "richer representation" branch is dead cheaply.
+- CPU ~3h. Depends: S0.1 `[x]`, S0.3 `[x]`.
 
 **S2.2 · Conditioning that does not fight the KD loss** `[ ]`
 v1 FiLM regressed because it modulated the exact tensor feature-KD reads.
@@ -202,17 +257,46 @@ Parallel separable oriented kernels (0/45/90/135 + isotropic), learnable
 per-band coefficients, combined **linearly** so branches can merge.
 - **Deliver:** module + operators-off byte-identity test (the no-confound check
   used for v3).
-- ~2h dev. Depends: S0.1, S0.2.
+- **Settled by S0.1/S0.2 — inherit, do not redecide:**
+  - **Keep all four orientations.** Only family within 0.09 dB of the oracle at
+    every rain angle; the 45°/135° branches are exactly what fails without them.
+  - **k = 11.** Gain saturates by then (+0.384 vs +0.385 at k=15, +0.365 at k=7)
+    and it is where the oriented support first becomes a real constraint (97 of
+    121 taps). Consistent with the 7×7–11×11 convolution-theorem result.
+  - **No normalisation and no nonlinearity between the branches and the sum.**
+    Any later "improvement" adding either silently destroys the whole deployment
+    argument (plan risk 2). S0.2's exactness check is the guard.
+  - The working kernel algebra (`full_conv2d_depthwise`, `pad_to`, the
+    gradient-masked diagonal support) transfers directly from
+    `scripts/probe_reparam_oriented.py`.
+  - Orientation is worth +0.009 dB on denoise and +0.001 on haze — if the block
+    is ever made task-conditional, it is rain-only.
+- ~2h dev. Depends: S0.1 `[x]`, S0.2 `[x]` — **both cleared**.
 
-**S3.2 · Prove the merge is exact** `[ ]` **← GATE**
+**S3.2 · Prove the merge is exact** `[~]` **← GATE — pre-satisfied on the stub**
 Merge multi-branch → one conv; assert max |diff| < 1e-5 on random input; export
 and confirm a single Conv in the graph.
 - **Kill:** merge not exact → a nonlinearity has crept in; redesign.
+- **Already passing on the S0.2 stub** (9.5e-07 merge, 1.2e-06 through ORT,
+  exactly 1 Conv node). Boundary case checked deliberately: 9×9 inputs with k=7
+  are almost entirely boundary, and the merge holds there because zero-padding
+  commutes through the separable pair. Note the equivalent kernel is the **full
+  linear convolution** of the two branch kernels, not their cross-correlation —
+  `conv2d` is correlation, so the merge flips one kernel. A merge that gets that
+  wrong still passes an interior-only test.
+- **Still required against the real S3.1 module** once it lands in `src/models/`.
 - ~1h. Depends: S3.1. **Do not train until this passes.**
 
 **S3.3 · Train with the block, ablate placement** `[ ]`
 Middle-only vs decoder-only vs both, one variable at a time.
 - **Success:** > +0.07 dB over the matched no-block control.
+- **Caution from S0.1 — read before believing a positive.** On both corpora we
+  have (synthetic ±15°, real RainTrainL 93°±13°) a cheap axis-aligned `rank2`
+  kernel scores the same as the full oriented bank; the bank's advantage only
+  appears on off-axis rain, which neither corpus contains. **So a win here is
+  not coming from the mechanism S0.1 measured**, and needs a different
+  explanation before it is claimed as one. The place orientation should pay is
+  S4.3.
 - **Kill:** three placements all null → the spatial frequency route is closed,
   and that is a publishable negative given the convolution-theorem ceiling.
 - 3 GPU runs. Depends: S3.2, S1.1.
@@ -231,6 +315,11 @@ claim so far is single-seed; this is what makes the result reportable.
 composite (+1.17 dB) and unseen (+0.59), not standard 3-task (+0.12). **Our
 entire evaluation is one-degradation-at-a-time, the regime where this family
 helps least.** Build a mixed-degradation test set and evaluate there.
+- **Add a rotated-rain condition** (0/22.5/45/67.5/90°). S0.1 showed the oriented
+  bank's whole advantage over cheaper families lives at off-axis angles, and
+  *neither* of our current corpora contains any. Without this condition the
+  orientation machinery cannot be shown to earn its keep anywhere.
+  `scripts/oriented_angle_control.py` already generates rain at a fixed angle.
 
 **S4.4 · Final NPU measurement** `[ ]` — real Qualcomm AI Hub latency, FP32 and
 INT8, on the merged deployment graph, at the chosen size.

@@ -1,0 +1,339 @@
+==============================================================================
+S0.1 -- oracle ceiling for separable oriented kernels
+==============================================================================
+
+[0] mechanism self-test
+  self-test: recovered a known 5x5 kernel, max|err| = 4.677e-10
+
+scene-disjoint: 300 train / 80 test crops
+band half-width b=1 (band width 3, matches S0.2 kp=3)
+
+==============================================================================
+=== denoise ===
+==============================================================================
+  accumulated over 300 training crops
+  degraded input                 20.292 dB
+  unconstrained frequency filter 25.289 dB (+4.997)   <- absolute linear ceiling
+
+  --- k = 3 ---   (optimal k x k kernel anisotropy 1.05x at 75 deg)
+    family      params     PSNR   vs iso  vs full
+    full             9   25.000   -0.000   +0.000
+    oriented4        9   25.000   -0.000   +0.000
+    cross            9   25.000   -0.000   +0.000
+    diag             9   25.000   -0.000   +0.000
+    iso              3   25.000   +0.000   +0.000
+    rank1            5   25.002   +0.001   +0.002
+    rank2           10   25.000   -0.000   +0.000
+    rank3           15   25.000   -0.000   +0.000
+    random(ctl)      9   25.000   -0.000   +0.000   [25.000, 25.000]
+    KEY: oriented4 - iso = -0.000 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 5 ---   (optimal k x k kernel anisotropy 1.03x at 98 deg)
+    family      params     PSNR   vs iso  vs full
+    full            25   25.106   -0.000   +0.000
+    oriented4       25   25.106   -0.000   +0.000
+    cross           21   25.086   -0.020   -0.020
+    diag            21   24.995   -0.111   -0.111
+    iso              6   25.107   +0.000   +0.000
+    rank1            9   25.016   -0.091   -0.090
+    rank2           18   25.106   -0.000   +0.000
+    rank3           27   25.106   -0.000   +0.000
+    random(ctl)     25   25.106   -0.000   +0.000   [25.106, 25.106]
+    KEY: oriented4 - iso = -0.000 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 7 ---   (optimal k x k kernel anisotropy 1.02x at 55 deg)
+    family      params     PSNR   vs iso  vs full
+    full            49   25.161   -0.001   +0.000
+    oriented4       49   25.161   -0.001   +0.000
+    cross           33   25.133   -0.029   -0.028
+    diag            33   24.995   -0.166   -0.166
+    iso             10   25.161   +0.000   +0.001
+    rank1           13   25.016   -0.146   -0.145
+    rank2           26   25.159   -0.003   -0.002
+    rank3           39   25.161   -0.000   +0.000
+    random(ctl)     49   25.161   -0.001   +0.000   [25.161, 25.161]
+    KEY: oriented4 - iso = -0.001 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 9 ---   (optimal k x k kernel anisotropy 1.01x at 72 deg)
+    family      params     PSNR   vs iso  vs full
+    full            81   25.192   -0.001   +0.000
+    oriented4       73   25.190   -0.003   -0.002
+    cross           45   25.163   -0.030   -0.029
+    diag            45   24.995   -0.198   -0.197
+    iso             15   25.193   +0.000   +0.001
+    rank1           17   25.016   -0.177   -0.177
+    rank2           34   25.185   -0.008   -0.007
+    rank3           51   25.193   -0.000   +0.000
+    random(ctl)     73   25.003   -0.190   -0.189   [24.866, 25.182]
+    KEY: oriented4 - iso = -0.003 dB   |  oriented4 - random = +0.187 dB
+
+  --- k = 11 ---   (optimal k x k kernel anisotropy 1.01x at 25 deg)
+    family      params     PSNR   vs iso  vs full
+    full           121   25.213   +0.012   +0.000
+    oriented4       97   25.210   +0.009   -0.003
+    cross           57   25.185   -0.016   -0.028
+    diag            57   24.995   -0.205   -0.218
+    iso             20   25.201   +0.000   -0.012
+    rank1           21   25.016   -0.185   -0.197
+    rank2           42   25.200   -0.001   -0.013
+    rank3           63   25.213   +0.013   +0.000
+    random(ctl)     97   24.424   -0.777   -0.789   [23.412, 25.174]
+    KEY: oriented4 - iso = +0.009 dB   |  oriented4 - random = +0.786 dB
+
+  --- k = 15 ---   (optimal k x k kernel anisotropy 1.05x at 83 deg)
+    family      params     PSNR   vs iso  vs full
+    full           225   25.240   +0.008   +0.000
+    oriented4      145   25.237   +0.004   -0.003
+    cross           81   25.214   -0.018   -0.026
+    diag            81   24.995   -0.237   -0.245
+    iso             34   25.232   +0.000   -0.008
+    rank1           29   25.016   -0.216   -0.224
+    rank2           58   25.215   -0.017   -0.025
+    rank3           87   25.240   +0.008   +0.000
+    random(ctl)    145   24.377   -0.855   -0.863   [23.496, 25.140]
+    KEY: oriented4 - iso = +0.004 dB   |  oriented4 - random = +0.860 dB
+
+  --- k = 21 ---   (optimal k x k kernel anisotropy 1.04x at 83 deg)
+    family      params     PSNR   vs iso  vs full
+    full           441   25.263   +0.011   +0.000
+    oriented4      217   25.261   +0.009   -0.003
+    cross          117   25.240   -0.012   -0.023
+    diag           117   24.995   -0.256   -0.268
+    iso             61   25.252   +0.000   -0.011
+    rank1           41   25.016   -0.236   -0.247
+    rank2           82   25.224   -0.028   -0.039
+    rank3          123   25.263   +0.011   -0.000
+    random(ctl)    217   23.496   -1.756   -1.767   [22.732, 24.469]
+    KEY: oriented4 - iso = +0.009 dB   |  oriented4 - random = +1.765 dB
+
+==============================================================================
+=== dehaze ===
+==============================================================================
+  accumulated over 300 training crops
+  degraded input                 11.820 dB
+  unconstrained frequency filter 12.640 dB (+0.820)   <- absolute linear ceiling
+
+  --- k = 3 ---   (optimal k x k kernel anisotropy 1.59x at 96 deg)
+    family      params     PSNR   vs iso  vs full
+    full             9   12.602   +0.001   +0.000
+    oriented4        9   12.602   +0.001   +0.000
+    cross            9   12.602   +0.001   +0.000
+    diag             9   12.602   +0.001   +0.000
+    iso              3   12.601   +0.000   -0.001
+    rank1            5   12.602   +0.001   +0.000
+    rank2           10   12.602   +0.001   +0.000
+    rank3           15   12.602   +0.001   +0.000
+    random(ctl)      9   12.602   +0.001   +0.000   [12.602, 12.602]
+    KEY: oriented4 - iso = +0.001 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 5 ---   (optimal k x k kernel anisotropy 1.36x at 96 deg)
+    family      params     PSNR   vs iso  vs full
+    full            25   12.603   +0.001   +0.000
+    oriented4       25   12.603   +0.001   +0.000
+    cross           21   12.603   +0.001   +0.000
+    diag            21   12.603   +0.001   -0.000
+    iso              6   12.602   +0.000   -0.001
+    rank1            9   12.603   +0.001   +0.000
+    rank2           18   12.603   +0.001   +0.000
+    rank3           27   12.603   +0.001   +0.000
+    random(ctl)     25   12.603   +0.001   +0.000   [12.603, 12.603]
+    KEY: oriented4 - iso = +0.001 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 7 ---   (optimal k x k kernel anisotropy 1.70x at 98 deg)
+    family      params     PSNR   vs iso  vs full
+    full            49   12.602   +0.001   +0.000
+    oriented4       49   12.602   +0.001   +0.000
+    cross           33   12.602   +0.000   -0.000
+    diag            33   12.602   +0.001   +0.000
+    iso             10   12.602   +0.000   -0.001
+    rank1           13   12.603   +0.001   +0.000
+    rank2           26   12.602   +0.001   +0.000
+    rank3           39   12.602   +0.001   +0.000
+    random(ctl)     49   12.602   +0.001   +0.000   [12.602, 12.602]
+    KEY: oriented4 - iso = +0.001 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 9 ---   (optimal k x k kernel anisotropy 1.68x at 98 deg)
+    family      params     PSNR   vs iso  vs full
+    full            81   12.602   +0.000   +0.000
+    oriented4       73   12.602   +0.001   +0.000
+    cross           45   12.602   +0.000   -0.000
+    diag            45   12.602   +0.001   +0.001
+    iso             15   12.601   +0.000   -0.000
+    rank1           17   12.602   +0.001   +0.000
+    rank2           34   12.602   +0.001   +0.000
+    rank3           51   12.602   +0.000   +0.000
+    random(ctl)     73   12.602   +0.000   -0.000   [12.602, 12.602]
+    KEY: oriented4 - iso = +0.001 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 11 ---   (optimal k x k kernel anisotropy 1.69x at 99 deg)
+    family      params     PSNR   vs iso  vs full
+    full           121   12.601   +0.000   +0.000
+    oriented4       97   12.601   +0.000   +0.000
+    cross           57   12.601   +0.000   -0.000
+    diag            57   12.602   +0.001   +0.001
+    iso             20   12.601   +0.000   -0.000
+    rank1           21   12.601   +0.000   +0.000
+    rank2           42   12.601   +0.000   -0.000
+    rank3           63   12.601   +0.000   -0.000
+    random(ctl)     97   12.545   -0.055   -0.056   [12.448, 12.601]
+    KEY: oriented4 - iso = +0.000 dB   |  oriented4 - random = +0.056 dB
+
+  --- k = 15 ---   (optimal k x k kernel anisotropy 1.38x at 89 deg)
+    family      params     PSNR   vs iso  vs full
+    full           225   12.601   +0.000   +0.000
+    oriented4      145   12.601   +0.000   +0.000
+    cross           81   12.600   -0.000   -0.001
+    diag            81   12.603   +0.002   +0.001
+    iso             34   12.601   +0.000   -0.000
+    rank1           29   12.600   -0.001   -0.001
+    rank2           58   12.600   -0.000   -0.001
+    rank3           87   12.601   +0.000   -0.000
+    random(ctl)    145   12.546   -0.054   -0.055   [12.453, 12.601]
+    KEY: oriented4 - iso = +0.000 dB   |  oriented4 - random = +0.055 dB
+
+  --- k = 21 ---   (optimal k x k kernel anisotropy 1.23x at 91 deg)
+    family      params     PSNR   vs iso  vs full
+    full           441   12.606   +0.001   +0.000
+    oriented4      217   12.605   +0.000   -0.000
+    cross          117   12.603   -0.002   -0.003
+    diag           117   12.606   +0.002   +0.001
+    iso             61   12.605   +0.000   -0.001
+    rank1           41   12.602   -0.003   -0.004
+    rank2           82   12.603   -0.002   -0.002
+    rank3          123   12.605   +0.000   -0.000
+    random(ctl)    217   12.465   -0.139   -0.140   [12.367, 12.605]
+    KEY: oriented4 - iso = +0.000 dB   |  oriented4 - random = +0.140 dB
+
+==============================================================================
+=== derain ===
+==============================================================================
+  accumulated over 300 training crops
+  degraded input                 26.785 dB
+  unconstrained frequency filter 27.634 dB (+0.848)   <- absolute linear ceiling
+
+  --- k = 3 ---   (optimal k x k kernel anisotropy 1.55x at 2 deg)
+    family      params     PSNR   vs iso  vs full
+    full             9   27.135   +0.161   +0.000
+    oriented4        9   27.135   +0.161   +0.000
+    cross            9   27.135   +0.161   +0.000
+    diag             9   27.135   +0.161   +0.000
+    iso              3   26.974   +0.000   -0.161
+    rank1            5   27.067   +0.094   -0.067
+    rank2           10   27.134   +0.161   -0.000
+    rank3           15   27.135   +0.161   -0.000
+    random(ctl)      9   27.135   +0.161   +0.000   [27.135, 27.135]
+    KEY: oriented4 - iso = +0.161 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 5 ---   (optimal k x k kernel anisotropy 1.08x at 178 deg)
+    family      params     PSNR   vs iso  vs full
+    full            25   27.470   +0.325   +0.000
+    oriented4       25   27.470   +0.325   +0.000
+    cross           21   27.437   +0.292   -0.033
+    diag            21   27.452   +0.307   -0.018
+    iso              6   27.145   +0.000   -0.325
+    rank1            9   27.329   +0.184   -0.141
+    rank2           18   27.469   +0.324   -0.001
+    rank3           27   27.470   +0.325   -0.000
+    random(ctl)     25   27.470   +0.325   +0.000   [27.470, 27.470]
+    KEY: oriented4 - iso = +0.325 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 7 ---   (optimal k x k kernel anisotropy 1.24x at 3 deg)
+    family      params     PSNR   vs iso  vs full
+    full            49   27.540   +0.365   +0.000
+    oriented4       49   27.540   +0.365   +0.000
+    cross           33   27.489   +0.314   -0.051
+    diag            33   27.497   +0.322   -0.043
+    iso             10   27.175   +0.000   -0.365
+    rank1           13   27.384   +0.209   -0.156
+    rank2           26   27.534   +0.359   -0.006
+    rank3           39   27.540   +0.364   -0.000
+    random(ctl)     49   27.540   +0.365   +0.000   [27.540, 27.540]
+    KEY: oriented4 - iso = +0.365 dB   |  oriented4 - random = +0.000 dB
+
+  --- k = 9 ---   (optimal k x k kernel anisotropy 1.48x at 2 deg)
+    family      params     PSNR   vs iso  vs full
+    full            81   27.560   +0.378   +0.000
+    oriented4       73   27.560   +0.378   -0.000
+    cross           45   27.500   +0.317   -0.061
+    diag            45   27.504   +0.322   -0.056
+    iso             15   27.182   +0.000   -0.378
+    rank1           17   27.398   +0.216   -0.162
+    rank2           34   27.549   +0.366   -0.012
+    rank3           51   27.560   +0.377   -0.001
+    random(ctl)     73   27.556   +0.374   -0.004   [27.552, 27.559]
+    KEY: oriented4 - iso = +0.378 dB   |  oriented4 - random = +0.004 dB
+
+  --- k = 11 ---   (optimal k x k kernel anisotropy 2.09x at 1 deg)
+    family      params     PSNR   vs iso  vs full
+    full           121   27.570   +0.384   +0.000
+    oriented4       97   27.569   +0.384   -0.001
+    cross           57   27.504   +0.319   -0.065
+    diag            57   27.506   +0.320   -0.064
+    iso             20   27.186   +0.000   -0.384
+    rank1           21   27.404   +0.219   -0.165
+    rank2           42   27.552   +0.366   -0.018
+    rank3           63   27.569   +0.384   -0.001
+    random(ctl)     97   26.708   -0.478   -0.862   [25.252, 27.564]
+    KEY: oriented4 - iso = +0.384 dB   |  oriented4 - random = +0.861 dB
+
+  --- k = 15 ---   (optimal k x k kernel anisotropy 3.12x at 1 deg)
+    family      params     PSNR   vs iso  vs full
+    full           225   27.585   +0.389   +0.000
+    oriented4      145   27.580   +0.385   -0.005
+    cross           81   27.514   +0.318   -0.071
+    diag            81   27.506   +0.311   -0.079
+    iso             34   27.196   +0.000   -0.389
+    rank1           29   27.410   +0.215   -0.175
+    rank2           58   27.554   +0.359   -0.031
+    rank3           87   27.584   +0.388   -0.001
+    random(ctl)    145   26.728   -0.468   -0.857   [25.338, 27.569]
+    KEY: oriented4 - iso = +0.385 dB   |  oriented4 - random = +0.853 dB
+
+  --- k = 21 ---   (optimal k x k kernel anisotropy 3.84x at 1 deg)
+    family      params     PSNR   vs iso  vs full
+    full           441   27.608   +0.396   +0.000
+    oriented4      217   27.595   +0.383   -0.013
+    cross          117   27.532   +0.319   -0.077
+    diag           117   27.506   +0.294   -0.102
+    iso             61   27.212   +0.000   -0.396
+    rank1           41   27.417   +0.205   -0.191
+    rank2           82   27.569   +0.356   -0.040
+    rank3          123   27.607   +0.394   -0.001
+    random(ctl)    217   25.560   -1.652   -2.048   [24.368, 27.541]
+    KEY: oriented4 - iso = +0.383 dB   |  oriented4 - random = +2.035 dB
+
+==============================================================================
+VERDICT (kill: oriented ceiling < +0.15 dB over isotropic)
+==============================================================================
+
+task         k      iso  oriented4     full   or4-iso  or4-rand   aniso
+denoise      3   25.000     25.000   25.000    -0.000    +0.000    1.05
+denoise      5   25.107     25.106   25.106    -0.000    +0.000    1.03
+denoise      7   25.161     25.161   25.161    -0.001    +0.000    1.02
+denoise      9   25.193     25.190   25.192    -0.003    +0.187    1.01
+denoise     11   25.201     25.210   25.213    +0.009    +0.786    1.01
+denoise     15   25.232     25.237   25.240    +0.004    +0.860    1.05
+denoise     21   25.252     25.261   25.263    +0.009    +1.765    1.04
+dehaze       3   12.601     12.602   12.602    +0.001    +0.000    1.59
+dehaze       5   12.602     12.603   12.603    +0.001    +0.000    1.36
+dehaze       7   12.602     12.602   12.602    +0.001    +0.000    1.70
+dehaze       9   12.601     12.602   12.602    +0.001    +0.000    1.68
+dehaze      11   12.601     12.601   12.601    +0.000    +0.056    1.69
+dehaze      15   12.601     12.601   12.601    +0.000    +0.055    1.38
+dehaze      21   12.605     12.605   12.606    +0.000    +0.140    1.23
+derain       3   26.974     27.135   27.135    +0.161    +0.000    1.55
+derain       5   27.145     27.470   27.470    +0.325    +0.000    1.08
+derain       7   27.175     27.540   27.540    +0.365    +0.000    1.24
+derain       9   27.182     27.560   27.560    +0.378    +0.004    1.48
+derain      11   27.186     27.569   27.570    +0.384    +0.861    2.09
+derain      15   27.196     27.580   27.585    +0.385    +0.853    3.12
+derain      21   27.212     27.595   27.608    +0.383    +2.035    3.84
+
+Best oriented-over-isotropic gain per task (over all k):
+  denoise   k=11  oriented4 - iso = +0.009 dB   (vs random control +0.786, kernel anisotropy 1.01x)   below +0.15
+  dehaze    k=5   oriented4 - iso = +0.001 dB   (vs random control +0.000, kernel anisotropy 1.36x)   below +0.15
+  derain    k=15  oriented4 - iso = +0.385 dB   (vs random control +0.853, kernel anisotropy 3.12x)   PASS
+
+  PASS: orientation is worth its keep on at least one task
+
+wrote reports/reparam_gate/s0_1_oriented_ceiling.json

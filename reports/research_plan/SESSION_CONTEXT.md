@@ -124,8 +124,39 @@ synthetic-haze artifact; on real SOTS it is −1.94 dB).
 
 ## 4. Where things stand right now
 
-- **devon:** `B0V3-KD-FEAT` at ~75k/90k, healthy, ~1h remaining.
-  `runs/b0v3_kd_feat/`.
+- **devon:** GPU **free**. `B0V3-KD-FEAT` was **deliberately stopped at 81k/90k**
+  on 2026-08-31 21:13 (not a crash) — it had plateaued (78k→81k = +0.003 dB) and
+  the GPU was being shared. **It still needs finishing to 90k**: B0V2-KD-FEAT and
+  B0V3 both ran a full 90k, so an 81k number makes schedule length a second
+  variable in the headline comparison. Exact resume command, state and rationale:
+  `runs/b0v3_kd_feat/.../B0V3-KD-FEAT_seed0_20260831_083259/RESUME.md`.
+  ~75 min on an uncontended card. `last.pth` = iteration 81000, best 33.768,
+  full optimizer/EMA/RNG state — `--resume` is an exact continuation.
+- **B0V3-KD-FEAT @81k = 33.768**, already above B0V2-KD-FEAT's and B0V3's *90k
+  finals* (33.621, 33.520), so the ordering is settled; only the margin is open.
+  At the matched 75k: **+0.159** vs B0V2-KD-FEAT, **+0.265** vs B0V3, ahead on
+  all three tasks. B0V3 has two seeds (seed0 stopped at 69k, seed1 ran to 90k);
+  seed0-vs-seed1 mean |Δ| over ≥51k is **0.031 dB**, independently reconfirming
+  the 0.035 noise floor on this architecture.
+- **Phase 0 of the plan is COMPLETE: S0.1 `[x]` PASS, S0.2 `[x]` PASS, S0.3 `[x]` KILL.**
+  Reports in `reports/reparam_gate/`. S0.2: the reparameterized block's merged
+  deployment graph is **one depthwise Conv, zero UNKNOWN ops on all three
+  backends in FP32 and INT8** — Phase 3 is not export-blocked, and S3.2 is
+  pre-satisfied on the stub. S0.1: orientation is worth **+0.385 dB (derain)**
+  over isotropic and **+0.009 / +0.001** on denoise/dehaze — keep the four
+  orientations at k=11, rain only. **Caveat that must not be lost:**
+  `add_rain` draws `angle ~ U(-15,15)` and real RainTrainL is 93°±13°, so
+  *neither corpus contains off-axis rain* — which is the only regime where the
+  oriented bank beats a cheap axis-aligned kernel. A win in S3.3 on current test
+  sets is therefore **not** the mechanism S0.1 measured.
+  **S0.3: KILLED — keep PCA-16.** Degradation-ID from the student's own
+  decoder features saturates: `concat` reaches **99.67% at TWO PCA dims**,
+  and no dimension anywhere beats 16 by more than +1.17 pp (clean control
+  exactly at chance). Width is not the bottleneck, so the plan's premise
+  of "a richer representation replacing PCA-16" loses its motivation —
+  **and S2.1's kill criterion (< +2pp over PCA-16) is now unsatisfiable,
+  since only +0.33 pp exists above 99.67%. S2.1 must be redefined on
+  severity / unseen degradations / downstream PSNR before it is run.**
 - **qbits:** blocked (idle vLLM, 1,073 MB free). `B0V2-KD-DENOISE-ONLY` is
   **built, registered, verified, and OOM-killed** — relaunch when the card frees.
   Task-selective KD is implemented in `trainer.py` via `distill.kd_tasks`, with
