@@ -184,3 +184,32 @@ class MergedOrientedBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.fuse(self.conv(x))
+
+
+class PlainLargeKernelBlock(nn.Module):
+    """Matched CONTROL for ReparamOrientedBlock: one unconstrained depthwise
+    k x k kernel, same 1x1 fuse, same zero-init residual, same deployed cost.
+
+    It differs from the oriented block in exactly one way -- no oriented branch
+    structure -- so the difference between them isolates orientation from
+    receptive field. It needs no merge step: a single depthwise conv is already
+    the deployment form, which is also the point (whatever the oriented bank
+    merges into, this is the same shape).
+    """
+
+    def __init__(self, dim: int, k: int = 11) -> None:
+        super().__init__()
+        if k % 2 == 0:
+            raise ValueError(f"kernel size must be odd, got {k}")
+        self.dim, self.k = dim, k
+        self.conv = nn.Conv2d(dim, dim, k, padding=k // 2, groups=dim, bias=False)
+        self.fuse = nn.Conv2d(dim, dim, 1, bias=False)
+        nn.init.zeros_(self.fuse.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.fuse(self.conv(x))
+
+    @torch.no_grad()
+    def merge(self) -> nn.Module:
+        """Already in deployment form; returned for interface parity."""
+        return MergedOrientedBlock(self.conv, self.fuse)

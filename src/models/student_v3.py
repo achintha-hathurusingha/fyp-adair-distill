@@ -126,7 +126,9 @@ from src.models.theory_blocks import (
 __all__ = ["StudentV3", "build_student_v3"]
 
 
-from src.models.reparam_oriented import ReparamOrientedBlock  # noqa: E402
+from src.models.reparam_oriented import (  # noqa: E402
+    PlainLargeKernelBlock, ReparamOrientedBlock,
+)
 
 
 class StudentV3(nn.Module):
@@ -168,6 +170,10 @@ class StudentV3(nn.Module):
         reparam_k: int = 11,          # fixed by S0.1's oracle ceiling
         reparam_stages: tuple[int, ...] | list[int] | None = None,
         reparam_middle: bool = False,
+        # "oriented" = the S3.1 block; "plain" = matched large-kernel CONTROL
+        # (same size, same fuse, same deployed cost, no oriented structure).
+        # S3.3 needs both or a win cannot be attributed to orientation.
+        reparam_variant: str = "oriented",
     ) -> None:
         super().__init__()
         enc_blk_nums = enc_blk_nums or [2, 2, 4, 8]
@@ -295,13 +301,20 @@ class StudentV3(nn.Module):
                 raise ValueError(
                     f"reparam_stages {bad} out of range for "
                     f"{len(dec_blk_nums)} decoder stages")
+            if reparam_variant not in ("oriented", "plain"):
+                raise ValueError(
+                    f"reparam_variant must be 'oriented' or 'plain', "
+                    f"got {reparam_variant!r}")
+            self.reparam_variant = reparam_variant
+            mk = (ReparamOrientedBlock if reparam_variant == "oriented"
+                  else PlainLargeKernelBlock)
             self.reparam_stages = tuple(stages)
             self.reparam_blocks = nn.ModuleDict({
-                str(i): ReparamOrientedBlock(decoder_channels[i], k=reparam_k)
+                str(i): mk(decoder_channels[i], k=reparam_k)
                 for i in self.reparam_stages})
-            self.mid_reparam = (ReparamOrientedBlock(chan, k=reparam_k)
-                                if reparam_middle else None)
+            self.mid_reparam = mk(chan, k=reparam_k) if reparam_middle else None
         else:
+            self.reparam_variant = None
             self.reparam_stages = ()
             self.reparam_blocks = None
             self.mid_reparam = None
