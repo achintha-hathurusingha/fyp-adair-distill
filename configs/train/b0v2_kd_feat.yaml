@@ -93,7 +93,11 @@ distill:
 eval:
   harness: src/eval/evaluate.py
   val_tasks:
-    denoise: test/denoise/bsd68
-    derain:  test/derain/demo
-    dehaze:  test/dehaze/demo
-  test_sets: [bsd68, derain_demo, dehaze_demo]   # documentation only
+    # Leak-free sets. The former test/{derain,dehaze}/demo sets were carved out
+    # of the TRAINING corpora and multi-task runs never excluded them -- see
+    # scripts/fix_val_tasks.py. Training data is unchanged and still matches the
+    # published protocol (BSD400+WED / Rain100L-200 / OTS-72135).
+    denoise: test/denoise/bsd68      # 68 imgs; verified disjoint from BSD400+WED
+    derain:  test/derain/rain100L    # Rain100L TEST, 100 pairs; 0/200 content overlap
+    dehaze:  test/dehaze/sots_clean  # SOTS-outdoor minus the 75 scenes RESIDE leaks into OTS
+  test_sets: [bsd68, rain100L, sots_clean]   # documentation only

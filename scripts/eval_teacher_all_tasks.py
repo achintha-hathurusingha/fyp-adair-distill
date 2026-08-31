@@ -45,7 +45,7 @@ for sigma in (15, 25, 50):
 results["psnr_denoise"] = sum(results[f"psnr_denoise_s{s}"] for s in (15, 25, 50)) / 3
 results["ssim_denoise"] = sum(results[f"ssim_denoise_s{s}"] for s in (15, 25, 50)) / 3
 
-for task, rel in (("derain", "test/derain/demo"), ("dehaze", "test/dehaze/demo")):
+for task, rel in (("derain", "test/derain/rain100L"), ("dehaze", "test/dehaze/sots_clean")):
     ds = build_dataset(task, data_root / rel)
     res = evaluate(model_fn, iter(ds), name=task, config=ADAIR_DEFAULT,
                    device=device, keep_per_image=False)

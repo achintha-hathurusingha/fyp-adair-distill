@@ -58,30 +58,63 @@ Early training is ~0.21 dB, collapsing as it converges. **Anything under
 
 ### Current best arms (our own harness, per-task PSNR)
 
-| arm | architecture | training | combined | denoise | derain | dehaze |
-|---|---|---|---|---|---|---|
-| AdaIR teacher | Restormer-ish, 28.78M | — | — | 31.253 | 39.725 | 36.928 |
-| B0V2-KD-FEAT | NAFNet 7.37M | +KD | 33.568 @75k | 30.684 | 36.031 | 33.989 |
-| B0V3 | StudentV3 7.45M | GT-only | 33.461 @75k | 30.645 | 36.088 | 33.650 |
-| **B0V3-KD-FEAT** | **StudentV3 7.45M** | **+KD** | **33.726 @75k** | **30.789** | **36.190** | **34.200** |
+> **All numbers below are on the CORRECTED, leak-free test sets** (BSD68 /
+> Rain100L-100 / SOTS-clean-417), re-scored 2026-08-31. Anything quoted from an
+> older report using `test/derain/demo` or `test/dehaze/demo` is invalid: those
+> sets were carved out of the TRAINING corpora and multi-task runs never
+> excluded them. The leak was worth **~1.9 dB** on the combined metric (dehaze
+> ~4.6 dB, derain ~0.6-1.1 dB; denoise unaffected). See
+> `reports/clean_eval_rescore.json`, `scripts/rescore_clean.py`.
 
-**B0V3-KD-FEAT is the best arm.** At 75k it leads the KD baseline by +0.159 and
-the GT-only v3 by +0.265, ahead on all three tasks, ahead at every checkpoint
-from 9k on. **Removing KD from this architecture costs 0.265 dB** — so
-"drop distillation" is contradicted by current data.
+**Harness validation:** on the corrected sets our teacher reproduces AdaIR's
+published table **exactly** — denoise 31.2534 (paper 31.253) and derain 38.6412
+(paper 38.64). Two independent exact matches.
+
+| arm | architecture | training | mean3 | denoise | derain | dehaze |
+|---|---|---|---|---|---|---|
+| AdaIR teacher | Restormer-ish, 28.78M | — | 33.322 | 31.253 | 38.641 | 30.072 |
+| **B0V3-KD-FEAT** | **StudentV3 7.45M** | **+KD** | **31.899 @90k** | **30.794** | 35.159 | **29.744** |
+| B0V3 | StudentV3 7.45M | GT-only | 31.788 @90k | 30.649 | **35.547** | 29.167 |
+| B0V2-KD-FEAT | NAFNet 7.37M | +KD | 31.666 @90k | 30.693 | 35.133 | 29.171 |
+
+(`last.pth` at 90k, not `best.pth` — `best.pth` is selected on the validation
+set, and validation runs on the test set, so it would be selection on test. At a
+fixed 90k budget the final checkpoint carries no such selection.)
+
+**B0V3-KD-FEAT is still the best arm overall** (+0.111 vs GT-only v3, +0.233 vs
+the KD baseline). But the KD story changed: **KD now HURTS derain by 0.388 dB**
+(GT-only v3 wins that task) and the overall KD benefit is carried almost
+entirely by dehaze (+0.577). "Removing KD costs 0.265 dB" was a leaked-eval
+artifact; the true cost is **0.111 dB**, and it is task-dependent.
+
+**The project reframes.** The student is within **0.33 dB on dehaze** and
+**0.46 dB on denoise** of a 28.78M Restormer-class teacher, at 7.45M params and
+deployable. **Derain is the only real gap left (3.48 dB)** — which is exactly
+where S0.1 says the oriented block should act, and exactly where KD is hurting.
 
 ### KD is architecture-dependent (the key nuance)
 KD *hurt* NAFNet (−0.79 overall, −2.59 rain in TEST07-B) but *helps* StudentV3.
 Its effect tracks the per-task teacher-student gap:
 
-| task | teacher gap | KD effect (TEST07-B) | KD effect (90k arms) |
-|---|---|---|---|
-| denoise | 0.567 dB | +1.238 | +0.007 |
-| dehaze | 2.283 dB | −1.027 | −0.545 |
-| derain | 2.897 dB | −2.591 | −0.757 |
+**Corrected (leak-free) gaps and KD effects — the hypothesis got STRONGER:**
 
-r = −0.987 / −0.9999, **identical rank ordering in two independent experiments**.
-Caveat: n=3, so the reproducing *order* is the evidence, not the coefficient.
+| task | teacher gap | KD effect (B0V3-KD-FEAT − B0V3) |
+|---|---|---|
+| dehaze | **0.328 dB** (smallest) | **+0.577** (most positive) |
+| denoise | 0.459 dB | +0.144 |
+| derain | **3.482 dB** (largest) | **−0.388** (most negative) |
+
+Perfectly monotonic: the smaller the teacher-student gap, the more KD helps.
+Cleaner than the pre-correction numbers, and it shows the old ordering was
+partly an artifact — **dehaze moved from second-largest gap to smallest**.
+Caveat: n=3, so the reproducing *order* is the evidence, not a coefficient.
+
+The older `KD effect (90k arms)` column (denoise +0.007, dehaze −0.545, derain
+−0.757) is **withdrawn**: it was leaked-eval, and it also appears to have
+compared B0V2-GT-only@300k against B0V2-KD-FEAT@90k — arms differing in
+iterations (300k vs 90k) and in noise sampling (`sigma_range`+`clean_prob` vs
+discrete `sigmas`), not just in KD. `reports/kd_lit_review/review.md` still
+quotes it and needs revisiting.
 
 ### Frequency findings
 - **AdaIR's mask is inert** — 6 independent tests, plus TEST18 retraining all

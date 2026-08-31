@@ -1,0 +1,10 @@
+
+=== AdaIR teacher (all_in_one), evaluated on the same 3 held-out sets ===
+  psnr: 33.3222
+  psnr_denoise: 31.2534
+  psnr_derain: 38.6412
+  psnr_dehaze: 30.0719
+  ssim: 0.9460
+  ssim_denoise: 0.8763
+  ssim_derain: 0.9830
+  ssim_dehaze: 0.9785

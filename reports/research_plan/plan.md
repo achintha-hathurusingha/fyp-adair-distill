@@ -14,7 +14,9 @@ blocks implemented as *learnable spatial kernels* rather than FFT.
 Not "beat the teacher's PSNR." That framing is both harder and less valuable
 than it looks:
 
-- The derain gap is **3.54 dB**. Scaling w16 → w32 typically buys ~0.3-0.5 dB
+- The derain gap is **3.48 dB** [corrected, leak-free sets; teacher 38.641 vs
+  B0V3-KD-FEAT 35.159]. **It is now the ONLY real gap** — dehaze is 0.33 dB and
+  denoise 0.46 dB, i.e. effectively closed. Scaling w16 → w32 typically buys ~0.3-0.5 dB
   in this family, so capacity alone will not close it. The likely causes are
   training length (teacher 285k+ iters, task-specific tuning, vs our 90k) and
   three-task dilution — **not** parameter count.
@@ -48,7 +50,7 @@ a claim we can make; "deployable and cheaper at resolution" is.**
 | our measurement | what it licenses |
 |---|---|
 | KD effect tracks the teacher-student gap (r = -0.987 / -0.9999) | a **bigger student** shrinks the gap, so KD should get *more* useful, not less |
-| B0V3-KD-FEAT beats both parents on all 3 tasks (at 75k: +0.159 vs KD arm, +0.265 vs GT-only v3) | the architecture x distillation interaction is real; **KD is currently worth 0.265 dB** and should not be dropped on principle |
+| B0V3-KD-FEAT leads both parents on the CORRECTED sets (90k: +0.233 vs KD arm, +0.111 vs GT-only v3) | the architecture x distillation interaction is real, but **KD is worth 0.111 dB, not 0.265** — and it **HURTS derain by 0.388 dB** (GT-only v3 wins that task). Keep KD, but it is now a per-task question, not a global one |
 | 7x7-11x11 kernels reproduce the full optimal frequency filter | frequency mining **can** be done spatially |
 | separable oriented bands 98.3% vs radial 97.5% vs square 93.3% (dims matched at 24) | the band geometry should be **separable and oriented** |
 | AdaIR's own alpha/beta collapse toward equality with depth (AFLB3 0.496/0.497) | it *has* the orientation freedom and does not use it — that is the gap to exploit |
