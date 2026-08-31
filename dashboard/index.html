@@ -8,149 +8,163 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
 <style>
+/* Deliberately single-theme light: this is a wall board that lives on one
+   screen in one room. Every colour is painted explicitly so it holds whatever
+   ground the browser puts behind it. */
 :root{
-  --ground:#F5F8F6;--surface:#FCFCFB;--band:#EDF2F0;--ink:#111917;
-  --muted:#5F706C;--faint:#8A9995;--rule:#D3DEDA;--hard:#111917;
-  /* categorical, validated all-pairs for 3 series on this surface:
-     CVD dE 11.5 (protan), normal-vision dE 16.6, lightness band OK.
-     Contrast WARNs at 2.9:1 -> relieved by direct end-labels + legend + tables. */
-  --s0:#2BA88F;--s1:#D08A2C;--s2:#4E82CC;
+  --ground:#F4F6F5;      /* warm-cool neutral, slight green bias toward the accent */
+  --surface:#FFFFFF;
+  --surface-2:#FAFBFA;
+  --band:#EFF3F1;
+  --ink:#16211E;
+  --muted:#5B6D68;
+  --faint:#93A29D;
+  --rule:#E1E8E5;
+  --rule-2:#CFD9D5;
+  --hair:#16211E;
+  /* series hues: validated all-pairs for 3 series on a light surface
+     (CVD dE 11.5 protan, normal dE 16.6, lightness band OK) */
+  --s0:#2BA88F;  --s1:#D08A2C;  --s2:#4E82CC;
   --teach:#8A6BD0;
-  --warnbg:#FBF0EE;--warnbd:#E3C4BE;--bad:#C4566E;
-  --shadow:0 1px 2px rgba(17,25,23,.05),0 6px 20px rgba(17,25,23,.05);
-  --serif:"IBM Plex Serif",Georgia,serif;--sans:"IBM Plex Sans",system-ui,sans-serif;
+  --ok:#2BA88F; --warn:#C4566E;
+  --warnbg:#FDF2F0; --warnbd:#F0D3CE;
+  --okbg:#EDF8F5; --okbd:#BFE5DA;
+  --shadow:0 1px 2px rgba(22,33,30,.04), 0 4px 16px rgba(22,33,30,.05);
+  --shadow-lg:0 2px 4px rgba(22,33,30,.05), 0 12px 32px rgba(22,33,30,.07);
+  --serif:"IBM Plex Serif",Georgia,serif;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --ground:#0D1413;--surface:#1A1A19;--band:#212B29;--ink:#E8EFEC;
-  --muted:#9AABA6;--faint:#71827E;--rule:#2A3733;--hard:#E8EFEC;
-  /* dark steps chosen for the dark ground, validated separately - not a flip */
-  --s0:#22A67F;--s1:#BE873A;--s2:#5F8BD6;
-  --teach:#9B7DD8;
-  --warnbg:#241A19;--warnbd:#4A322E;--bad:#D4707F;
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.3);
-}}
-:root[data-theme="dark"]{
-  --ground:#0D1413;--surface:#1A1A19;--band:#212B29;--ink:#E8EFEC;
-  --muted:#9AABA6;--faint:#71827E;--rule:#2A3733;--hard:#E8EFEC;
-  --s0:#22A67F;--s1:#BE873A;--s2:#5F8BD6;--teach:#9B7DD8;
-  --warnbg:#241A19;--warnbd:#4A322E;--bad:#D4707F;
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.3);
+  --r:6px;
 }
 *{box-sizing:border-box}
+html{color-scheme:light}
 body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
   font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
-.wrap{max-width:1300px;margin:0 auto;padding:26px 22px 80px}
+.wrap{max-width:1320px;margin:0 auto;padding:30px 24px 90px}
 h1,h2{font-family:var(--serif);margin:0}
-h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
-h2{font-size:18px;font-weight:600}
+h1{font-size:28px;font-weight:600;letter-spacing:-.015em}
+h2{font-size:19px;font-weight:600;letter-spacing:-.005em}
 h3{font-family:var(--sans);font-size:15px;font-weight:600;margin:0}
 p{margin:0}
 .mono{font-family:var(--mono)}
-.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
-  flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:16px;margin-bottom:18px}
-.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--s0)}
+
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;
+  flex-wrap:wrap;margin-bottom:20px}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--s0);margin-bottom:3px}
 .pollbox{display:flex;align-items:center;gap:9px;font-family:var(--mono);
-  font-size:11.5px;color:var(--muted)}
-.pulse{width:8px;height:8px;border-radius:50%;background:var(--s0)}
-.pulse.bad{background:var(--bad)}
+  font-size:11.5px;color:var(--muted);background:var(--surface);
+  border:1px solid var(--rule);border-radius:100px;padding:6px 14px;
+  box-shadow:var(--shadow)}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
+.pulse.bad{background:var(--warn)}
 @media (prefers-reduced-motion:no-preference){
-  .pulse{animation:bp 2s ease-in-out infinite}
-  @keyframes bp{0%,100%{opacity:1}50%{opacity:.35}}
+  .pulse{animation:bp 2.4s ease-in-out infinite}
+  @keyframes bp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.82)}}
 }
-.gpus{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
-.gpu{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
-  padding:8px 12px;font-family:var(--mono);font-size:11.5px;color:var(--muted);
-  display:flex;gap:12px;align-items:center}
-.gpu b{color:var(--ink);font-weight:600}
-.gpu .meter{width:56px;height:5px;background:var(--band);border-radius:2px;overflow:hidden}
-.gpu .meter i{display:block;height:100%;background:var(--s0)}
-section{margin-top:30px}
-.sechead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-  border-bottom:1px solid var(--rule);padding-bottom:9px;margin-bottom:16px}
+
+.gpus{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.gpu{background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);
+  padding:11px 15px;box-shadow:var(--shadow);display:flex;gap:16px;align-items:center;
+  font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.gpu b{color:var(--ink);font-weight:600;font-family:var(--sans);font-size:13px}
+.gpu .meter{width:64px;height:6px;background:var(--band);border-radius:100px;overflow:hidden}
+.gpu .meter i{display:block;height:100%;border-radius:100px;background:var(--s0);
+  transition:width .5s ease}
+.gpu .meter i.hot{background:var(--s1)}
+
+section{margin-top:34px}
+.sechead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.sechead h2{display:flex;align-items:center;gap:10px}
+.sechead h2::before{content:"";width:3px;height:17px;border-radius:2px;
+  background:var(--s0);display:inline-block}
 .sechead p{color:var(--muted);font-size:12.5px}
 .spacer{flex:1}
-.toggle{display:flex;gap:0;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
-.toggle button{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;
-  text-transform:uppercase;padding:6px 12px;border:0;background:var(--surface);
-  color:var(--muted);cursor:pointer}
-.toggle button[aria-pressed="true"]{background:var(--band);color:var(--ink);font-weight:600}
+.toggle{display:flex;border:1px solid var(--rule-2);border-radius:100px;
+  overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
+.toggle button{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;padding:7px 15px;border:0;background:transparent;
+  color:var(--muted);cursor:pointer;transition:background .15s,color .15s}
+.toggle button[aria-pressed="true"]{background:var(--ink);color:#fff;font-weight:600}
 .toggle button:focus-visible{outline:2px solid var(--s0);outline-offset:-2px}
-.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:14px}
-.cpanel{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
-  box-shadow:var(--shadow);padding:14px 16px}
-.cpanel h3{font-size:13.5px;margin-bottom:2px}
-.cpanel .sub{font-family:var(--mono);font-size:10.5px;color:var(--faint);
-  letter-spacing:.05em;text-transform:uppercase}
-.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0 0;padding:0;list-style:none}
-.legend li{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
-.sw{width:15px;height:3px;border-radius:2px;flex:none}
+
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}
+.cpanel{background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:17px 19px}
+.cpanel h3{font-size:14px;margin-bottom:1px}
+.cpanel .sub{font-family:var(--mono);font-size:10px;color:var(--faint);
+  letter-spacing:.09em;text-transform:uppercase}
+.legend{display:flex;flex-wrap:wrap;gap:7px 18px;margin:11px 0 0;padding:0;list-style:none}
+.legend li{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.sw{width:16px;height:3px;border-radius:100px;flex:none}
 .sw.dash{height:0;border-top:2px dashed var(--teach)}
 .chartbox{position:relative}
 svg.chart{display:block;width:100%;height:auto;overflow:visible}
 .gridline{stroke:var(--rule);stroke-width:1}
-.axis{stroke:var(--rule);stroke-width:1}
+.axis{stroke:var(--rule-2);stroke-width:1}
 .axlab{font-family:var(--mono);font-size:9.5px;fill:var(--faint)}
 .endlab{font-family:var(--mono);font-size:10px;font-weight:600}
 .tip{position:absolute;pointer-events:none;background:var(--surface);
-  border:1px solid var(--rule);border-radius:3px;padding:7px 9px;font-size:11.5px;
-  box-shadow:var(--shadow);opacity:0;transition:opacity .1s;z-index:5;min-width:158px}
-.tip .h{font-family:var(--mono);font-size:10px;color:var(--faint);
-  letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
-.tip .r{display:flex;align-items:center;gap:8px;justify-content:space-between;
-  font-family:var(--mono);font-variant-numeric:tabular-nums}
-.tip .r span:first-child{display:flex;align-items:center;gap:6px;
+  border:1px solid var(--rule-2);border-radius:var(--r);padding:9px 11px;font-size:11.5px;
+  box-shadow:var(--shadow-lg);opacity:0;transition:opacity .12s;z-index:5;min-width:164px}
+.tip .h{font-family:var(--mono);font-size:9.5px;color:var(--faint);
+  letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.tip .r{display:flex;align-items:center;gap:10px;justify-content:space-between;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.tip .r span:first-child{display:flex;align-items:center;gap:7px;
   font-family:var(--sans);color:var(--muted)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:16px}
-.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
-  box-shadow:var(--shadow);padding:16px 18px}
-.card.live{border-left:3px solid var(--s0)}
-.card.done{border-left:3px solid var(--rule)}
-.card.err{border-left:3px solid var(--bad)}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:18px 20px;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--rule-2)}
+.card.live::before{background:var(--s0)}
+.card.job::before{background:var(--s2)}
+.card.err::before{background:var(--warn)}
 .chead{display:flex;align-items:center;justify-content:space-between;gap:10px;
-  flex-wrap:wrap;margin-bottom:4px}
+  flex-wrap:wrap;margin-bottom:3px}
 .role{color:var(--muted);font-size:12.5px}
-.chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
-  text-transform:uppercase;padding:2px 7px;border-radius:2px;
-  border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
-.chip.live{border-color:var(--s0);color:var(--s0)}
-.chip.leak{background:var(--warnbg);border-color:var(--warnbd);color:var(--bad)}
-.chip.clean{border-color:var(--s0);color:var(--s0)}
-.chip.stale{color:var(--faint)}
-.prog{height:6px;background:var(--band);border-radius:2px;overflow:hidden;margin:12px 0 6px}
-.prog i{display:block;height:100%;background:var(--s0);transition:width .4s ease}
+.chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;
+  text-transform:uppercase;padding:3px 9px;border-radius:100px;
+  border:1px solid var(--rule-2);color:var(--muted);white-space:nowrap;background:var(--surface-2)}
+.chip.live{border-color:var(--ok);color:var(--ok);background:var(--okbg)}
+.chip.leak{background:var(--warnbg);border-color:var(--warnbd);color:var(--warn)}
+.chip.clean{border-color:var(--ok);color:var(--ok);background:var(--okbg)}
+.prog{height:7px;background:var(--band);border-radius:100px;overflow:hidden;margin:13px 0 6px}
+.prog i{display:block;height:100%;border-radius:100px;background:var(--s0);transition:width .5s ease}
+.prog i.blue{background:var(--s2)}
 .progtxt{display:flex;justify-content:space-between;font-family:var(--mono);
   font-size:11px;color:var(--faint)}
 .psnrs{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);
-  border:1px solid var(--rule);border-radius:3px;overflow:hidden;margin-top:13px}
-.pz{background:var(--surface);padding:8px 10px}
-.pz .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  border:1px solid var(--rule);border-radius:var(--r);overflow:hidden;margin-top:14px}
+.pz{background:var(--surface-2);padding:9px 11px}
+.pz .k{font-family:var(--mono);font-size:9px;letter-spacing:.09em;
   text-transform:uppercase;color:var(--faint)}
-.pz .v{font-family:var(--mono);font-size:17px;font-weight:600;
+.pz .v{font-family:var(--mono);font-size:18px;font-weight:600;
   font-variant-numeric:tabular-nums;margin-top:2px}
+.pz.main{background:var(--okbg)}
 .pz.main .v{color:var(--s0)}
-.diag{display:flex;gap:14px;flex-wrap:wrap;margin-top:11px;font-family:var(--mono);
-  font-size:11px;color:var(--muted)}
+.diag{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-family:var(--mono);
+  font-size:11px;color:var(--faint)}
 .diag b{color:var(--ink);font-weight:500}
-details{margin-top:11px}
-summary{cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--faint);
-  letter-spacing:.06em;text-transform:uppercase}
+details{margin-top:12px}
+summary{cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--faint);
+  letter-spacing:.09em;text-transform:uppercase;user-select:none}
+summary:hover{color:var(--muted)}
 summary:focus-visible{outline:2px solid var(--s0);outline-offset:3px}
-pre{margin:8px 0 0;padding:10px;background:var(--band);border-radius:2px;
-  font-family:var(--mono);font-size:10.5px;line-height:1.5;color:var(--muted);
-  overflow-x:auto;max-height:190px}
+pre{margin:9px 0 0;padding:11px 13px;background:var(--surface-2);border:1px solid var(--rule);
+  border-radius:var(--r);font-family:var(--mono);font-size:10.5px;line-height:1.55;
+  color:var(--muted);overflow-x:auto;max-height:200px}
 table{border-collapse:collapse;width:100%;margin-top:10px}
-th,td{padding:6px 9px;text-align:right;font-family:var(--mono);font-size:11.5px;
+th,td{padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11.5px;
   font-variant-numeric:tabular-nums;border-bottom:1px solid var(--rule)}
 th:first-child,td:first-child{text-align:left;font-family:var(--sans)}
-th{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
-  font-weight:500}
+th{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:500}
 tbody tr:last-child td{border-bottom:none}
-.warnbox{background:var(--warnbg);border:1px solid var(--warnbd);border-radius:3px;
-  padding:12px 15px;margin-bottom:16px;font-size:13px}
-.empty{color:var(--faint);font-size:13px;padding:14px 0}
-footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--rule);
+.warnbox{background:var(--warnbg);border:1px solid var(--warnbd);border-radius:var(--r);
+  padding:13px 16px;margin-bottom:16px;font-size:13px;color:var(--ink)}
+.empty{color:var(--faint);font-size:13px;padding:16px 0}
+footer{margin-top:52px;padding-top:18px;border-top:1px solid var(--rule);
   color:var(--faint);font-size:11.5px}
 </style>
 </head>
@@ -167,10 +181,15 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--rule);
 
 <div class="gpus" id="gpus"></div>
 
+<section id="jobsSec" hidden>
+  <div class="sechead"><h2>Preprocessing</h2>
+    <p>GPU work that produces no training log — invisible on an arms-only board</p></div>
+  <div class="grid" id="jobsGrid"></div>
+</section>
+
 <section>
   <div class="sechead">
-    <h2>Comparison</h2>
-    <p id="cmpSub"></p>
+    <h2>Comparison</h2><p id="cmpSub"></p>
     <span class="spacer"></span>
     <div class="toggle" role="group" aria-label="evaluation regime">
       <button id="btnClean" aria-pressed="true">leak-free arms</button>
@@ -188,17 +207,15 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--rule);
 </section>
 
 <section>
-  <div class="sechead"><h2>Finished &amp; historical</h2>
-    <p>last checkpoint on disk</p></div>
+  <div class="sechead"><h2>Finished &amp; historical</h2><p>last checkpoint on disk</p></div>
   <div class="grid" id="doneGrid"></div>
 </section>
 
 <footer>
   Polls <span class="mono">/api/status</span> every 6&nbsp;s ·
-  <span class="mono">remote_status.py</span> reads
-  <span class="mono">history.json</span> and tails
-  <span class="mono">train.log</span> — it never touches the training process.
-  Series colours validated all-pairs for CVD on both grounds.
+  <span class="mono">remote_status.py</span> reads <span class="mono">history.json</span>
+  and tails <span class="mono">train.log</span> — it never touches the training process.
+  Series colours validated all-pairs for colour-vision deficiency on this surface.
 </footer>
 </div>
 
@@ -207,159 +224,138 @@ const META = {
   "B0V3-KD-K11":     {role:"plain 11×11 depthwise — receptive-field control", eval:"clean", slot:0},
   "B0V3-KD-ORI":     {role:"reparameterizable oriented block",                eval:"clean", slot:1},
   "B0V3-KD-ORI-MID": {role:"oriented block + middle placement",               eval:"clean", slot:2},
+  "S33-K11-CACHED":  {role:"plain 11×11 control, cached teacher",             eval:"clean", slot:0},
+  "S33-CTRL-CACHED": {role:"no-block control, cached teacher",                eval:"clean", slot:1},
+  "S11-W16-DEEP":    {role:"S1.1 scaling — w16 deeper, GT-only",              eval:"clean", slot:2},
+  "S11-W24":         {role:"S1.1 scaling — w24, GT-only",                     eval:"clean", slot:0},
+  "S11-W32":         {role:"S1.1 scaling — w32, GT-only",                     eval:"clean", slot:1},
   "B0V3-KD-FEAT":    {role:"StudentV3 + KD — best arm, no-block control",     eval:"leaked", slot:0},
   "B0V3":            {role:"StudentV3, GT-only — isolates KD",                eval:"leaked", slot:1},
   "B0V2-KD-FEAT":    {role:"NAFNet + KD — isolates architecture",             eval:"leaked", slot:2},
 };
-// AdaIR teacher on the LEAK-FREE protocol (BSD68 / Rain100L-100 / SOTS-clean).
-// Drawn on both views deliberately: against the leaked arms it shows how far
-// above the teacher they sit on dehaze, which is the leak made visible.
-const TEACHER = {psnr:33.322, psnr_denoise:31.253, psnr_derain:38.641, psnr_dehaze:30.072};
-const METRICS = [
-  {key:"psnr",         name:"Combined",  sub:"mean of 3 tasks"},
-  {key:"psnr_denoise", name:"Denoise",   sub:"BSD68"},
-  {key:"psnr_derain",  name:"Derain",    sub:"Rain100L"},
-  {key:"psnr_dehaze",  name:"Dehaze",    sub:"SOTS"},
-];
-const TOTAL_ITERS = 90000;
-const $ = id => document.getElementById(id);
-const fmt = (v,d=3) => (v==null||isNaN(v)) ? "—" : Number(v).toFixed(d);
-let MODE = "clean", LAST = null;
+const TEACHER={psnr:33.322,psnr_denoise:31.253,psnr_derain:38.641,psnr_dehaze:30.072};
+const METRICS=[{key:"psnr",name:"Combined",sub:"mean of 3 tasks"},
+  {key:"psnr_denoise",name:"Denoise",sub:"BSD68"},
+  {key:"psnr_derain",name:"Derain",sub:"Rain100L"},
+  {key:"psnr_dehaze",name:"Dehaze",sub:"SOTS"}];
+const TOTAL_ITERS=90000;
+const $=id=>document.getElementById(id);
+const fmt=(v,d=3)=>(v==null||isNaN(v))?"—":Number(v).toFixed(d);
+const gb=b=>(b/1024**3).toFixed(1);
+let MODE="clean",LAST=null;
+const hue=s=>getComputedStyle(document.documentElement).getPropertyValue('--s'+s).trim();
 
-function hue(slot){ return getComputedStyle(document.documentElement)
-  .getPropertyValue('--s'+slot).trim(); }
-
-function multiChart(metric, arms){
-  const id = 'ch_'+metric.key, tid = 'tip_'+metric.key;
-  const W=460, H=210, M={t:12,r:56,b:26,l:44};
-  const series = arms.map(a => ({
-    label: a.arm, slot: (META[a.arm]||{}).slot ?? 0,
-    pts: (a.history||[]).filter(e=>e[metric.key]!=null).map(e=>[e.iteration,e[metric.key]])
-  })).filter(s=>s.pts.length);
-  if(!series.length) return `<div class="cpanel"><h3>${metric.name}</h3>
-    <div class="sub">${metric.sub}</div><p class="empty">no checkpoints yet</p></div>`;
-
-  const all = series.flatMap(s=>s.pts);
-  const x1 = Math.max(TOTAL_ITERS, ...all.map(p=>p[0]));
-  const tref = TEACHER[metric.key];
-  let y0=Math.min(...all.map(p=>p[1])), y1=Math.max(...all.map(p=>p[1]));
-  if(tref!=null){ y0=Math.min(y0,tref); y1=Math.max(y1,tref); }
-  const pad=Math.max((y1-y0)*0.10, 0.05); y0-=pad; y1+=pad;
-  const X=v=>M.l+v/x1*(W-M.l-M.r), Y=v=>H-M.b-(v-y0)/(y1-y0)*(H-M.t-M.b);
-
-  let s='';
-  for(let i=0;i<=3;i++){
-    const v=y0+(y1-y0)*i/3, y=Y(v);
-    s+=`<line class="gridline" x1="${M.l}" y1="${y.toFixed(1)}" x2="${W-M.r}" y2="${y.toFixed(1)}"/>`;
-    s+=`<text class="axlab" x="${M.l-6}" y="${(y+3).toFixed(1)}" text-anchor="end">${v.toFixed(1)}</text>`;
-  }
-  for(let v=30000;v<=x1;v+=30000)
-    s+=`<text class="axlab" x="${X(v).toFixed(1)}" y="${H-M.b+15}" text-anchor="middle">${v/1000}k</text>`;
-  s+=`<line class="axis" x1="${M.l}" y1="${H-M.b}" x2="${W-M.r}" y2="${H-M.b}"/>`;
-
-  if(tref!=null){
-    const y=Y(tref);
-    s+=`<line x1="${M.l}" y1="${y.toFixed(1)}" x2="${W-M.r}" y2="${y.toFixed(1)}"
-         stroke="var(--teach)" stroke-width="2" stroke-dasharray="5 4"/>`;
-    s+=`<text class="endlab" x="${W-M.r+5}" y="${(y+3.5).toFixed(1)}"
-         fill="var(--teach)">${tref.toFixed(2)}</text>`;
-  }
-  series.forEach(sr=>{
-    const c = hue(sr.slot);
-    const d = sr.pts.map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join(' ');
-    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2"
-         stroke-linejoin="round" stroke-linecap="round"/>`;
-    const last=sr.pts[sr.pts.length-1];
-    s+=`<circle cx="${X(last[0]).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="3.2"
-         fill="${c}" stroke="var(--surface)" stroke-width="2"/>`;
-    // direct end-label: the relief the contrast WARN obligates
-    s+=`<text class="endlab" x="${(X(last[0])+7).toFixed(1)}" y="${(Y(last[1])+3.5).toFixed(1)}"
-         fill="${c}">${last[1].toFixed(2)}</text>`;
-  });
-  s+=`<line id="${id}cx" class="axis" x1="0" y1="${M.t}" x2="0" y2="${H-M.b}"
-       stroke-dasharray="3 3" opacity="0"/>`;
-  s+=`<rect x="${M.l}" y="${M.t}" width="${W-M.l-M.r}" height="${H-M.t-M.b}"
-       fill="transparent" id="${id}hit"/>`;
-
-  const rows = series.map(sr=>{
-    const l=sr.pts[sr.pts.length-1];
-    return `<tr><td><span class="sw" style="display:inline-block;background:${hue(sr.slot)}"></span>
-      ${sr.label}</td><td>${l[0].toLocaleString()}</td><td>${l[1].toFixed(3)}</td>
-      <td>${tref!=null?(l[1]-tref).toFixed(3):'—'}</td></tr>`;
-  }).join('');
-
-  return `<div class="cpanel">
-    <h3>${metric.name}</h3><div class="sub">${metric.sub}</div>
-    <div class="chartbox"><div id="${tid}" class="tip"></div>
-      <svg id="${id}" class="chart" viewBox="0 0 ${W} ${H}" role="img"
-        aria-label="${metric.name} PSNR over training iterations for ${series.length} arms, with the AdaIR teacher reference at ${tref}">${s}</svg></div>
-    <ul class="legend">
-      ${series.map(sr=>`<li><span class="sw" style="background:${hue(sr.slot)}"></span>${sr.label}</li>`).join('')}
-      <li><span class="sw dash"></span>teacher ${tref!=null?tref.toFixed(2):''}</li>
-    </ul>
-    <details><summary>values</summary>
-      <table><thead><tr><th>arm</th><th>iter</th><th>PSNR</th><th>vs teacher</th></tr></thead>
-      <tbody>${rows}</tbody></table></details>
-  </div>`;
-}
-
-function wireHover(metric, arms){
-  const id='ch_'+metric.key, svg=$(id); if(!svg) return;
-  const tip=$('tip_'+metric.key), hit=$(id+'hit'), cx=$(id+'cx');
-  if(!hit) return;
-  const W=460,M={l:44,r:56};
-  const series = arms.map(a=>({label:a.arm, slot:(META[a.arm]||{}).slot??0,
+function multiChart(metric,arms){
+  const id='ch_'+metric.key,tid='tip_'+metric.key;
+  const W=470,H=214,M={t:12,r:58,b:26,l:46};
+  const series=arms.map(a=>({label:a.arm,slot:(META[a.arm]||{}).slot??0,
     pts:(a.history||[]).filter(e=>e[metric.key]!=null).map(e=>[e.iteration,e[metric.key]])}))
     .filter(s=>s.pts.length);
+  if(!series.length) return `<div class="cpanel"><h3>${metric.name}</h3>
+    <div class="sub">${metric.sub}</div><p class="empty">no checkpoints yet</p></div>`;
+  const all=series.flatMap(s=>s.pts);
+  const x1=Math.max(TOTAL_ITERS,...all.map(p=>p[0]));
+  const tref=TEACHER[metric.key];
+  let y0=Math.min(...all.map(p=>p[1])),y1=Math.max(...all.map(p=>p[1]));
+  if(tref!=null){y0=Math.min(y0,tref);y1=Math.max(y1,tref);}
+  const pad=Math.max((y1-y0)*0.10,0.05);y0-=pad;y1+=pad;
+  const X=v=>M.l+v/x1*(W-M.l-M.r),Y=v=>H-M.b-(v-y0)/(y1-y0)*(H-M.t-M.b);
+  let s='';
+  for(let i=0;i<=3;i++){const v=y0+(y1-y0)*i/3,y=Y(v);
+    s+=`<line class="gridline" x1="${M.l}" y1="${y.toFixed(1)}" x2="${W-M.r}" y2="${y.toFixed(1)}"/>`;
+    s+=`<text class="axlab" x="${M.l-7}" y="${(y+3).toFixed(1)}" text-anchor="end">${v.toFixed(1)}</text>`;}
+  for(let v=30000;v<=x1;v+=30000)
+    s+=`<text class="axlab" x="${X(v).toFixed(1)}" y="${H-M.b+16}" text-anchor="middle">${v/1000}k</text>`;
+  s+=`<line class="axis" x1="${M.l}" y1="${H-M.b}" x2="${W-M.r}" y2="${H-M.b}"/>`;
+  if(tref!=null){const y=Y(tref);
+    s+=`<line x1="${M.l}" y1="${y.toFixed(1)}" x2="${W-M.r}" y2="${y.toFixed(1)}"
+         stroke="var(--teach)" stroke-width="2" stroke-dasharray="5 4"/>`;
+    s+=`<text class="endlab" x="${W-M.r+6}" y="${(y+3.5).toFixed(1)}" fill="var(--teach)">${tref.toFixed(2)}</text>`;}
+  series.forEach(sr=>{const c=hue(sr.slot);
+    s+=`<path d="${sr.pts.map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join(' ')}"
+         fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const l=sr.pts[sr.pts.length-1];
+    s+=`<circle cx="${X(l[0]).toFixed(1)}" cy="${Y(l[1]).toFixed(1)}" r="3.4" fill="${c}"
+         stroke="var(--surface)" stroke-width="2"/>`;
+    s+=`<text class="endlab" x="${(X(l[0])+7).toFixed(1)}" y="${(Y(l[1])+3.5).toFixed(1)}"
+         fill="${c}">${l[1].toFixed(2)}</text>`;});
+  s+=`<line id="${id}cx" class="axis" x1="0" y1="${M.t}" x2="0" y2="${H-M.b}" stroke-dasharray="3 3" opacity="0"/>`;
+  s+=`<rect x="${M.l}" y="${M.t}" width="${W-M.l-M.r}" height="${H-M.t-M.b}" fill="transparent" id="${id}hit"/>`;
+  const rows=series.map(sr=>{const l=sr.pts[sr.pts.length-1];
+    return `<tr><td><span class="sw" style="display:inline-block;background:${hue(sr.slot)}"></span> ${sr.label}</td>
+      <td>${l[0].toLocaleString()}</td><td>${l[1].toFixed(3)}</td>
+      <td>${tref!=null?(l[1]-tref).toFixed(3):'—'}</td></tr>`;}).join('');
+  return `<div class="cpanel"><h3>${metric.name}</h3><div class="sub">${metric.sub}</div>
+    <div class="chartbox"><div id="${tid}" class="tip"></div>
+      <svg id="${id}" class="chart" viewBox="0 0 ${W} ${H}" role="img"
+        aria-label="${metric.name} PSNR over training for ${series.length} arms, teacher reference ${tref}">${s}</svg></div>
+    <ul class="legend">${series.map(sr=>`<li><span class="sw" style="background:${hue(sr.slot)}"></span>${sr.label}</li>`).join('')}
+      <li><span class="sw dash"></span>teacher ${tref!=null?tref.toFixed(2):''}</li></ul>
+    <details><summary>values</summary><table>
+      <thead><tr><th>arm</th><th>iter</th><th>PSNR</th><th>vs teacher</th></tr></thead>
+      <tbody>${rows}</tbody></table></details></div>`;
+}
+
+function wireHover(metric,arms){
+  const id='ch_'+metric.key,svg=$(id);if(!svg)return;
+  const tip=$('tip_'+metric.key),hit=$(id+'hit'),cx=$(id+'cx');if(!hit)return;
+  const W=470,M={l:46,r:58};
+  const series=arms.map(a=>({label:a.arm,slot:(META[a.arm]||{}).slot??0,
+    pts:(a.history||[]).filter(e=>e[metric.key]!=null).map(e=>[e.iteration,e[metric.key]])})).filter(s=>s.pts.length);
   const x1=Math.max(TOTAL_ITERS,...series.flatMap(s=>s.pts.map(p=>p[0])));
   hit.addEventListener('pointermove',e=>{
-    const r=svg.getBoundingClientRect(), sx=(e.clientX-r.left)/r.width*W;
+    const r=svg.getBoundingClientRect(),sx=(e.clientX-r.left)/r.width*W;
     const it=(sx-M.l)/(W-M.l-M.r)*x1;
-    cx.setAttribute('x1',sx);cx.setAttribute('x2',sx);cx.setAttribute('opacity','.45');
+    cx.setAttribute('x1',sx);cx.setAttribute('x2',sx);cx.setAttribute('opacity','.4');
     let rows='',best=null;
-    series.forEach(sr=>{
-      let c=null,bd=1e9;
+    series.forEach(sr=>{let c=null,bd=1e9;
       sr.pts.forEach(p=>{if(Math.abs(p[0]-it)<bd){bd=Math.abs(p[0]-it);c=p;}});
       if(c&&bd<x1*0.06){best=best||c;
-        rows+=`<div class="r"><span><span class="sw" style="background:${hue(sr.slot)}"></span>${sr.label}</span><span>${c[1].toFixed(3)}</span></div>`;}
-    });
+        rows+=`<div class="r"><span><span class="sw" style="background:${hue(sr.slot)}"></span>${sr.label}</span><span>${c[1].toFixed(3)}</span></div>`;}});
     if(!rows){tip.style.opacity=0;return;}
     tip.innerHTML=`<div class="h">iteration ${best[0].toLocaleString()}</div>${rows}`;
     tip.style.opacity=1;
-    tip.style.left=Math.min(Math.max(e.clientX-r.left-78,0),r.width-166)+'px';
-    tip.style.top=Math.max(e.clientY-r.top-tip.offsetHeight-12,0)+'px';
-  });
+    tip.style.left=Math.min(Math.max(e.clientX-r.left-82,0),r.width-172)+'px';
+    tip.style.top=Math.max(e.clientY-r.top-tip.offsetHeight-12,0)+'px';});
   hit.addEventListener('pointerleave',()=>{tip.style.opacity=0;cx.setAttribute('opacity','0');});
 }
 
 function renderCompare(){
-  if(!LAST) return;
+  if(!LAST)return;
   const arms=[];
   Object.values(LAST.hosts||{}).forEach(h=>(h.arms||[]).forEach(a=>{
-    if(!a.error && (META[a.arm]||{}).eval===MODE) arms.push(a);
-  }));
-  $('charts').innerHTML = METRICS.map(m=>multiChart(m,arms)).join('');
+    if(!a.error&&(a.regime||(META[a.arm]||{}).eval)===MODE)arms.push(a);}));
+  $('charts').innerHTML=METRICS.map(m=>multiChart(m,arms)).join('');
   METRICS.forEach(m=>wireHover(m,arms));
-  $('cmpSub').textContent = arms.length
-    ? `${arms.length} arm${arms.length>1?'s':''} · teacher reference dashed`
-    : 'no arms with checkpoints in this regime yet';
-  const w=$('cmpWarn');
-  w.hidden = MODE!=='leaked';
-  if(!w.hidden) w.innerHTML = `<strong>These arms were scored on leaked test sets.</strong>
-    Their derain and dehaze curves run above the teacher line because the test images
-    were inside the training corpora — the gap you can see against the dashed
-    reference is the leak, not the model. Corrected values are in
-    <span class="mono">reports/clean_eval_rescore.json</span>.`;
-  $('btnClean').setAttribute('aria-pressed', MODE==='clean');
-  $('btnLeak').setAttribute('aria-pressed', MODE==='leaked');
+  $('cmpSub').textContent=arms.length?`${arms.length} arm${arms.length>1?'s':''} · teacher reference dashed`
+    :'no arms with checkpoints in this regime yet';
+  const w=$('cmpWarn');w.hidden=MODE!=='leaked';
+  if(!w.hidden)w.innerHTML=`<strong>These arms were scored on leaked test sets.</strong>
+    Their derain and dehaze curves run above the teacher line because the test images were
+    inside the training corpora — the gap against the dashed reference is the leak, not the
+    model. Corrected values are in <span class="mono">reports/clean_eval_rescore.json</span>.`;
+  $('btnClean').setAttribute('aria-pressed',MODE==='clean');
+  $('btnLeak').setAttribute('aria-pressed',MODE==='leaked');
+}
+
+function jobCard(j,host){
+  const pct=j.pct??0;
+  return `<div class="card job"><div class="chead"><h3>Teacher cache</h3>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <span class="chip live">building</span><span class="chip">${host}</span></div></div>
+    <p class="role">${j.out_dir||''} · mirrors <span class="mono">${(j.config||'').split('/').pop()}</span></p>
+    <div class="prog"><i class="blue" style="width:${pct}%"></i></div>
+    <div class="progtxt"><span>${gb(j.bytes)} / ${gb(j.expected_bytes)} GB</span><span>${pct.toFixed(1)}%</span></div>
+    <div class="diag"><span>pid <b>${j.pid}</b></span><span>180,000 samples</span>
+      <span>teacher forward is ~78% of a live step</span></div>
+    <details><summary>build log</summary><pre>${(j.log_tail||[]).map(l=>l.replace(/[<&]/g,c=>({'<':'&lt;','&':'&amp;'}[c]))).join('\n')||'(no log)'}</pre></details></div>`;
 }
 
 function spark(hist){
   const pts=(hist||[]).filter(e=>e.psnr!=null).map(e=>[e.iteration,e.psnr]);
-  if(pts.length<2) return `<p class="empty" style="padding:6px 0">awaiting a second checkpoint…</p>`;
-  const w=430,h=88,M={t:8,r:8,b:14,l:38};
-  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
-  const x1=Math.max(...xs,TOTAL_ITERS);
+  if(pts.length<2)return `<p class="empty" style="padding:8px 0">awaiting a second checkpoint…</p>`;
+  const w=440,h=92,M={t:9,r:9,b:15,l:40};
+  const ys=pts.map(p=>p[1]),x1=Math.max(...pts.map(p=>p[0]),TOTAL_ITERS);
   let y0=Math.min(...ys),y1=Math.max(...ys);
   const pad=Math.max((y1-y0)*0.14,0.02);y0-=pad;y1+=pad;
   const X=v=>M.l+v/x1*(w-M.l-M.r),Y=v=>h-M.b-(v-y0)/(y1-y0)*(h-M.t-M.b);
@@ -370,36 +366,37 @@ function spark(hist){
   s+=`<path d="${pts.map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join(' ')}"
        fill="none" stroke="var(--s0)" stroke-width="2" stroke-linejoin="round"/>`;
   const l=pts[pts.length-1];
-  s+=`<circle cx="${X(l[0]).toFixed(1)}" cy="${Y(l[1]).toFixed(1)}" r="3.2"
-       fill="var(--s0)" stroke="var(--surface)" stroke-width="2"/>`;
+  s+=`<circle cx="${X(l[0]).toFixed(1)}" cy="${Y(l[1]).toFixed(1)}" r="3.4" fill="var(--s0)"
+       stroke="var(--surface)" stroke-width="2"/>`;
   return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img"
     aria-label="Combined PSNR over training, latest ${fmt(l[1])} dB">${s}</svg>`;
 }
 
 function card(a,host){
   const meta=META[a.arm]||{role:"",eval:null};
-  if(a.error && /no run directory/i.test(a.error))
-    return `<div class="card done"><div class="chead"><h3>${a.arm}</h3>
-      <div style="display:flex;gap:6px"><span class="chip clean">leak-free eval</span>
-      <span class="chip stale">queued</span><span class="chip">${host}</span></div></div>
+  if(a.error&&/no run directory/i.test(a.error))
+    return `<div class="card"><div class="chead"><h3>${a.arm}</h3>
+      <div style="display:flex;gap:7px"><span class="chip clean">leak-free</span>
+      <span class="chip">queued</span><span class="chip">${host}</span></div></div>
       <p class="role">${meta.role}</p><div class="prog"><i style="width:0%"></i></div>
-      <div class="progtxt"><span>0 / ${TOTAL_ITERS.toLocaleString()} it</span>
-        <span>waiting for the GPU</span></div></div>`;
-  if(a.error) return `<div class="card err"><div class="chead"><h3>${a.arm}</h3>
-    <span class="chip">${host}</span></div>
-    <p class="role" style="color:var(--bad)">${a.error}</p></div>`;
+      <div class="progtxt"><span>0 / ${TOTAL_ITERS.toLocaleString()} it</span><span>waiting for the GPU</span></div></div>`;
+  if(a.error)return `<div class="card err"><div class="chead"><h3>${a.arm}</h3>
+    <span class="chip">${host}</span></div><p class="role" style="color:var(--warn)">${a.error}</p></div>`;
   const L=a.latest||{},it=L.iteration||0,pct=Math.min(100,it/TOTAL_ITERS*100);
-  const running=!a.stale, ago=a.last_update_s_ago;
-  const agoTxt=ago==null?"":ago<90?`${Math.round(ago)}s ago`:
-    ago<5400?`${Math.round(ago/60)}m ago`:`${(ago/3600).toFixed(1)}h ago`;
-  const ev=meta.eval==="clean"?`<span class="chip clean">leak-free eval</span>`:
-    meta.eval==="leaked"?`<span class="chip leak">leaked eval</span>`:"";
-  return `<div class="card ${running?'live':'done'}">
-    <div class="chead"><h3>${a.arm}</h3>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">${ev}
-        <span class="chip ${running?'live':'stale'}">${running?'training':'idle'}</span>
-        <span class="chip">${host}</span></div></div>
-    <p class="role">${meta.role}</p>
+  // liveness and regime come from the payload: remote_status checks the process
+  // table (log-mtime alone showed a killed run as "training" for an hour) and
+  // reads the regime from the run's OWN config, so a new arm is labelled without
+  // anyone editing a map here.
+  const running=a.alive===true,ago=a.last_update_s_ago;
+  const agoTxt=ago==null?"":ago<90?`${Math.round(ago)}s ago`:ago<5400?`${Math.round(ago/60)}m ago`:`${(ago/3600).toFixed(1)}h ago`;
+  const reg=a.regime||meta.eval;
+  const ev=reg==="clean"?`<span class="chip clean">leak-free</span>`:
+    reg==="leaked"?`<span class="chip leak">leaked eval</span>`:"";
+  return `<div class="card ${running?'live':''}">
+    <div class="chead"><h3>${a.arm}</h3><div style="display:flex;gap:7px;flex-wrap:wrap">${ev}
+      <span class="chip ${running?'live':''}">${running?'training':'idle'}</span>
+      <span class="chip">${host}</span></div></div>
+    <p class="role">${meta.role||''}${a.out_root?` <span class="mono" style="color:var(--faint)">· ${a.out_root}</span>`:''}</p>
     <div class="prog"><i style="width:${pct}%"></i></div>
     <div class="progtxt"><span>${it.toLocaleString()} / ${TOTAL_ITERS.toLocaleString()} it</span>
       <span>${pct.toFixed(1)}%${agoTxt?' · '+agoTxt:''}</span></div>
@@ -407,37 +404,37 @@ function card(a,host){
       <div class="pz main"><div class="k">combined</div><div class="v">${fmt(L.psnr)}</div></div>
       <div class="pz"><div class="k">denoise</div><div class="v">${fmt(L.psnr_denoise)}</div></div>
       <div class="pz"><div class="k">derain</div><div class="v">${fmt(L.psnr_derain)}</div></div>
-      <div class="pz"><div class="k">dehaze</div><div class="v">${fmt(L.psnr_dehaze)}</div></div>
-    </div>
-    <div class="diag"><span>loss <b>${fmt(L.loss,5)}</b></span>
-      <span>gnorm <b>${fmt(L.grad_norm,3)}</b></span>
+      <div class="pz"><div class="k">dehaze</div><div class="v">${fmt(L.psnr_dehaze)}</div></div></div>
+    <div class="diag"><span>loss <b>${fmt(L.loss,5)}</b></span><span>gnorm <b>${fmt(L.grad_norm,3)}</b></span>
       <span>clip <b>${L.clip_rate!=null?(L.clip_rate*100).toFixed(1)+'%':'—'}</b></span>
-      <span>skips <b>${L.nonfinite_skips ?? '—'}</b></span>
+      <span>skips <b>${L.nonfinite_skips??'—'}</b></span>
       <span>vram <b>${L.peak_vram_gb!=null?L.peak_vram_gb.toFixed(2)+'G':'—'}</b></span></div>
     ${spark(a.history)}
     <details><summary>log tail · ${a.run_dir||''}</summary>
-      <pre>${(a.log_tail||[]).map(l=>l.replace(/[<&]/g,c=>({'<':'&lt;','&':'&amp;'}[c]))).join('\n')||'(no log)'}</pre>
-    </details></div>`;
+      <pre>${(a.log_tail||[]).map(l=>l.replace(/[<&]/g,c=>({'<':'&lt;','&':'&amp;'}[c]))).join('\n')||'(no log)'}</pre></details></div>`;
 }
 
 async function tick(){
   let d;
-  try{ d=await (await fetch('/api/status',{cache:'no-store'})).json(); }
-  catch(e){ $('pulse').className='pulse bad';
-    $('pollTxt').textContent='server unreachable — is local_server.py running?'; return; }
-  LAST=d;
-  const hosts=d.hosts||{};
+  try{d=await (await fetch('/api/status',{cache:'no-store'})).json();}
+  catch(e){$('pulse').className='pulse bad';
+    $('pollTxt').textContent='server unreachable — is local_server.py running?';return;}
+  LAST=d;const hosts=d.hosts||{};
   $('gpus').innerHTML=Object.entries(hosts).map(([n,h])=>{
-    if(h.error) return `<div class="gpu"><b>${n}</b><span style="color:var(--bad)">${h.error.slice(0,70)}</span></div>`;
+    if(h.error)return `<div class="gpu"><b>${n}</b><span style="color:var(--warn)">${h.error.slice(0,70)}</span></div>`;
     return (h.gpus||[]).map(g=>g.error?`<div class="gpu"><b>${n}</b><span>${g.error.slice(0,60)}</span></div>`:
       `<div class="gpu"><b>${n}</b><span>${g.name.replace('NVIDIA GeForce ','')}</span>
-        <span class="meter"><i style="width:${g.util_pct}%"></i></span><span>${g.util_pct}%</span>
-        <span>${(g.mem_used_mb/1024).toFixed(1)}/${(g.mem_total_mb/1024).toFixed(0)}G</span>
-        <span>${g.temp_c}°C</span></div>`).join('');
-  }).join('');
+        <span class="meter"><i class="${g.util_pct>85?'hot':''}" style="width:${g.util_pct}%"></i></span>
+        <span>${g.util_pct}%</span><span>${(g.mem_used_mb/1024).toFixed(1)}/${(g.mem_total_mb/1024).toFixed(0)}G</span>
+        <span>${g.temp_c}°C</span></div>`).join('');}).join('');
+  const jobs=[];
+  Object.entries(hosts).forEach(([n,h])=>(h.jobs||[]).forEach(j=>jobs.push([j,n])));
+  $('jobsSec').hidden=jobs.length===0;
+  $('jobsGrid').innerHTML=jobs.map(([j,n])=>jobCard(j,n)).join('');
   const all=[];
   Object.entries(hosts).forEach(([n,h])=>(h.arms||[]).forEach(a=>all.push([a,n])));
-  const live=all.filter(([a])=>!a.error&&!a.stale), done=all.filter(([a])=>a.error||a.stale);
+  const live=all.filter(([a])=>!a.error&&a.alive===true);
+  const done=all.filter(([a])=>a.error||a.alive!==true);
   $('liveGrid').innerHTML=live.map(([a,n])=>card(a,n)).join('');
   $('liveEmpty').hidden=live.length>0;
   $('liveCount').textContent=live.length?`${live.length} arm${live.length>1?'s':''} active`:'';
@@ -445,11 +442,11 @@ async function tick(){
   renderCompare();
   $('pulse').className='pulse';
   const age=d.polled_at?Math.round(Date.now()/1000-d.polled_at):null;
-  $('pollTxt').textContent=`updated ${age==null?'—':age+'s'} ago · ${all.length} arms tracked`;
+  $('pollTxt').textContent=`updated ${age==null?'—':age+'s'} ago · ${all.length} arms · ${jobs.length} job${jobs.length===1?'':'s'}`;
 }
 $('btnClean').onclick=()=>{MODE='clean';renderCompare();};
 $('btnLeak').onclick=()=>{MODE='leaked';renderCompare();};
-tick(); setInterval(tick,6000);
+tick();setInterval(tick,6000);
 </script>
 </body>
 </html>

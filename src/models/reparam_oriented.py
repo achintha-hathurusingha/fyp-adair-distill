@@ -128,9 +128,19 @@ class ReparamOrientedCore(nn.Module):
         # identity branch at 1, so the MERGED kernel is delta and core(x) = x.
         # Without this, a zero-init fuse scales up a frozen random bank -- the
         # defect that killed B0V3-KD-K11. See the module docstring.
+        # Zero ONE factor of each separable pair, not both. The 0/90 branches
+        # are compositions h_short(h_long(x)); if BOTH factors start at zero then
+        # dL/d(h_long) is proportional to h_short = 0 and dL/d(h_short) is
+        # proportional to h_long(x) = 0, so neither ever leaves zero and those two
+        # orientations are dead for the whole run -- a "4-orientation bank" that
+        # is really a 2-orientation bank. Zeroing the LONG factor alone still
+        # makes the composition exactly zero at init (so the merged kernel is
+        # delta and core(x) = x), while leaving the short factor at its default
+        # init keeps the gradient path open. Verified in
+        # scripts/verify_delta_init.py -- all seven branches must learn.
         with torch.no_grad():
-            for c in (self.h_long, self.h_short, self.v_long, self.v_short,
-                      self.d45, self.d135, self.iso):
+            for c in (self.h_long, self.v_long,          # long factors only
+                      self.d45, self.d135, self.iso):    # single convs
                 c.weight.zero_()
         self._apply_mask()
 
