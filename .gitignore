@@ -54,3 +54,10 @@ dist/
 /mlruns/
 /reports/checksums/
 /weights_stable/
+
+# teacher response/feature cache (58 GB, regenerable via
+# scripts/build_teacher_cache.py -- never committed)
+/cache/**
+
+# reports keep their .md, not large attached media (same rule as .png above)
+/reports/**/*.mp4
