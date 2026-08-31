@@ -161,6 +161,12 @@ th,td{padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11.5px
 th:first-child,td:first-child{text-align:left;font-family:var(--sans)}
 th{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:500}
 tbody tr:last-child td{border-bottom:none}
+.tw{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);
+  border-radius:var(--r);box-shadow:var(--shadow);padding:2px 4px}
+.tw table{min-width:760px}
+.tw tbody tr:hover td{background:var(--surface-2)}
+.tw td.arm{font-weight:600}
+.tw td.run{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
 .warnbox{background:var(--warnbg);border:1px solid var(--warnbd);border-radius:var(--r);
   padding:13px 16px;margin-bottom:16px;font-size:13px;color:var(--ink)}
 .empty{color:var(--faint);font-size:13px;padding:16px 0}
@@ -207,8 +213,12 @@ footer{margin-top:52px;padding-top:18px;border-top:1px solid var(--rule);
 </section>
 
 <section>
-  <div class="sechead"><h2>Finished &amp; historical</h2><p>last checkpoint on disk</p></div>
-  <div class="grid" id="doneGrid"></div>
+  <div class="sechead"><h2>Finished &amp; historical</h2>
+    <p id="doneCount">last checkpoint on disk · newest first</p></div>
+  <div class="tw"><table id="doneTable">
+    <thead><tr><th>arm</th><th>run</th><th>eval</th><th>iters</th>
+      <th>combined</th><th>denoise</th><th>derain</th><th>dehaze</th><th>last seen</th></tr></thead>
+    <tbody></tbody></table></div>
 </section>
 
 <footer>
@@ -438,7 +448,23 @@ async function tick(){
   $('liveGrid').innerHTML=live.map(([a,n])=>card(a,n)).join('');
   $('liveEmpty').hidden=live.length>0;
   $('liveCount').textContent=live.length?`${live.length} arm${live.length>1?'s':''} active`:'';
-  $('doneGrid').innerHTML=done.map(([a,n])=>card(a,n)).join('');
+  const rows=done.filter(([a])=>!a.error).map(([a,n])=>{
+    const L=a.latest||{};
+    const ago=a.last_update_s_ago;
+    const seen=ago==null?'—':ago<5400?`${Math.round(ago/60)}m`:
+      ago<86400?`${(ago/3600).toFixed(1)}h`:`${(ago/86400).toFixed(1)}d`;
+    const chip=a.regime==='clean'?'<span class="chip clean">leak-free</span>':
+      a.regime==='leaked'?'<span class="chip leak">leaked</span>':'';
+    return `<tr><td class="arm">${a.arm}</td><td class="run">${a.out_root||''}</td>
+      <td>${chip}</td><td>${(L.iteration||0).toLocaleString()}</td>
+      <td>${fmt(L.psnr)}</td><td>${fmt(L.psnr_denoise)}</td>
+      <td>${fmt(L.psnr_derain)}</td><td>${fmt(L.psnr_dehaze)}</td>
+      <td>${seen}</td></tr>`;}).join('');
+  const queued=done.filter(([a])=>a.error).length;
+  document.querySelector('#doneTable tbody').innerHTML=rows||
+    '<tr><td colspan="9" style="color:var(--faint)">nothing yet</td></tr>';
+  $('doneCount').textContent=`${done.length-queued} run${done.length-queued===1?'':'s'} on disk`
+    + (queued?` · ${queued} queued`:'');
   renderCompare();
   $('pulse').className='pulse';
   const age=d.polled_at?Math.round(Date.now()/1000-d.polled_at):null;

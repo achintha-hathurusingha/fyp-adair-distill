@@ -54,3 +54,41 @@ if dead:
     print("  *** the 4-orientation bank is not 4 orientations")
 else:
     print("\n  all branches learning")
+
+
+# --- the PLAIN variant too -------------------------------------------------
+# Caught by the peer session: B0V3-KD-K11 runs reparam_variant="plain" ->
+# PlainLargeKernelBlock, which has NO branches, so everything above passes
+# while a plain-variant defect runs free. That is exactly how the first K11
+# regression went unexplained. The plain block's own liveness property is that
+# conv must move off its delta init once fuse leaves zero.
+from src.models.reparam_oriented import PlainLargeKernelBlock  # noqa: E402
+
+torch.manual_seed(0)
+pb = PlainLargeKernelBlock(16, k=11).train()
+opt2 = torch.optim.AdamW(pb.parameters(), lr=1e-3)
+torch.manual_seed(1)
+x2, t2 = torch.randn(4, 16, 32, 32), torch.randn(4, 16, 32, 32)
+for _ in range(40):
+    opt2.zero_grad(set_to_none=True)
+    F.l1_loss(pb(x2), t2).backward()
+    opt2.step()
+
+kh, kw = pb.conv.weight.shape[-2:]
+centre = float(pb.conv.weight[:, 0, kh // 2, kw // 2].abs().mean())
+offc = pb.conv.weight.clone()
+offc[:, 0, kh // 2, kw // 2] = 0
+print("")
+print("  PlainLargeKernelBlock (the K11 arm)")
+print("  %-9s%11s%13s   %s" % ("tensor", "|w|max", "|grad|max", "status"))
+for nm, w in (("conv", pb.conv.weight), ("fuse", pb.fuse.weight)):
+    g = 0.0 if w.grad is None else float(w.grad.abs().max())
+    print("  %-9s%11.3e%13.3e   %s"
+          % (nm, float(w.abs().max()), g,
+             "learning" if float(w.abs().max()) > 0 else "DEAD - never moved"))
+print("    centre tap mean = %.4f   max off-centre = %.4f" % (centre, float(offc.abs().max())))
+plain_ok = float(pb.fuse.weight.abs().max()) > 0 and float(offc.abs().max()) > 0
+print("  %s plain block: fuse moved AND conv adapted off delta"
+      % ("all good --" if plain_ok else "*** FAIL ***"))
+if not plain_ok:
+    raise SystemExit(1)

@@ -501,6 +501,53 @@ def build_config(arm: str, iters: int, batch_size: int, lr: float,
     return cfg
 
 
+def _assert_eval_sets_resolve(val_root, val_tasks) -> None:
+    """Fail fast if any evaluation path resolves to zero readable images.
+
+    Checks through the SAME lister the dataloader uses, so a directory full of
+    dangling symlinks fails here rather than at the first validation. Existence
+    checks do not catch that: `ls` lists broken links by name.
+    """
+    import logging
+
+    from src.data.build import _list_images
+
+    log = logging.getLogger(__name__)
+
+    targets = {}
+    if val_tasks:
+        for task, root in val_tasks.items():
+            targets[task] = Path(root)
+    elif val_root:
+        targets["val"] = Path(val_root)
+    if not targets:
+        return
+
+    problems = []
+    for task, root in targets.items():
+        # paired sets keep images under input/; single-dir sets are flat
+        probe = (root / "input") if (root / "input").is_dir() else root
+        try:
+            n = len(_list_images(probe))
+        except Exception as e:  # noqa: BLE001 - report, never mask
+            problems.append(f"{task}: {probe} -> {type(e).__name__}: {e}")
+            continue
+        log.info(f"eval set {task}: {n} readable images at {probe}")
+        if n == 0:
+            listed = sum(1 for _ in probe.iterdir()) if probe.is_dir() else 0
+            problems.append(
+                f"{task}: {probe} has {listed} directory entries but 0 READABLE "
+                f"images (dangling symlinks, or an unreadable format)")
+    if problems:
+        raise SystemExit(
+            "PREFLIGHT FAILED -- evaluation sets do not resolve on this host:\n  "
+            + "\n  ".join(problems)
+            + "\n\nThis aborts before training rather than at the first "
+              "validation, which is where it would otherwise surface after "
+              "~40 min of GPU. Copy the missing data to this host and relaunch."
+        )
+
+
 def build_model(cfg: dict):
     """Build the arm's model. Dispatches on the arch key so StudentV3
     (src/models/student_v3.py -- degradation-matched operators, see
@@ -683,6 +730,9 @@ def main() -> None:
                 "produces no convergence evidence.")
 
     model = build_model(cfg)
+    # fail fast on unresolvable eval sets -- see _assert_eval_sets_resolve
+    _assert_eval_sets_resolve(val_root, val_tasks)
+
     trainer = Trainer(model, loader, cfg, run_dir, device=args.device,
                       val_root=val_root, val_tasks=val_tasks)
     if args.resume:

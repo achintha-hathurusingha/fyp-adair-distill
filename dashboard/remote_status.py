@@ -184,11 +184,20 @@ def _is_training(out_root: str, arm: str) -> bool:
                             capture_output=True, text=True, timeout=8)
     except Exception:
         return False
-    needle_arm, needle_root = f"--arm {arm}", f"--out-root {os.path.join('runs', out_root)}"
+    want = {f"runs/{out_root}", out_root}
     for line in ps.stdout.splitlines():
-        if "src.train.train" in line and needle_arm in line:
-            if needle_root in line or f"--out-root runs/{out_root}" in line:
-                return True
+        if "src.train.train" not in line:
+            continue
+        toks = line.split()
+        got_arm = got_root = None
+        for i, t in enumerate(toks):
+            if t == "--arm" and i + 1 < len(toks):
+                got_arm = toks[i + 1]
+            elif t == "--out-root" and i + 1 < len(toks):
+                got_root = toks[i + 1].rstrip("/")
+        # exact token equality: a substring test makes runs/foo match runs/foo_v2
+        if got_arm == arm and got_root in want:
+            return True
     return False
 
 
@@ -284,11 +293,6 @@ def main() -> None:
             _seen.add(_a)
             _names.append(_a)
     arms_out = [_arm_status(*a.split("/", 1)) for a in _names if "/" in a]
-    for spec in ARMS:
-        if "/" not in spec:
-            continue
-        out_root, arm = spec.split("/", 1)
-        arms_out.append(_arm_status(out_root, arm))
 
     print(json.dumps({
         "hostname": os.uname().nodename if hasattr(os, "uname") else "unknown",
