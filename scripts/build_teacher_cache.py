@@ -128,6 +128,9 @@ def fill_rows(loader, teacher, degraded_mm, clean_mm, response_mm, latent_mm,
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--config", required=True,
+                    help="training config whose data: section this cache "
+                         "must mirror; recorded in index.json")
     ap.add_argument("--denoise", type=int, default=TASK_POOL_SIZES["denoise"])
     ap.add_argument("--derain", type=int, default=TASK_POOL_SIZES["derain"])
     ap.add_argument("--dehaze", type=int, default=TASK_POOL_SIZES["dehaze"])
